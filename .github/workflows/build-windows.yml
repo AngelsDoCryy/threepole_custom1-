@@ -1,0 +1,48 @@
+name: Build Threepole Custom for Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    env:
+      BUNGIE_API_KEY: ${{ secrets.BUNGIE_API_KEY }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Enable Yarn 1
+        shell: powershell
+        run: |
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify Bungie API key secret
+        shell: powershell
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:BUNGIE_API_KEY)) {
+            throw "Repository secret BUNGIE_API_KEY is missing."
+          }
+
+      - name: Install frontend dependencies
+        run: yarn install
+
+      - name: Build MSI
+        run: yarn tauri build
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: threepole-custom-windows-msi
+          path: src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
