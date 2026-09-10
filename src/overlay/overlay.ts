@@ -6,17 +6,14 @@ import type { TauriEvent, Preferences, CurrentActivity, PlayerDataStatus } from 
 import { countActivityClears, determineActivityType, formatMillis, formatTime } from "../core/util";
 import { getPlayerdata, getPreferences } from "../core/ipc";
 
-const widgetElem = document.querySelector<HTMLElement>("#widget")!;
 const loaderElem = document.querySelector<HTMLElement>("#widget-loader")!;
 const errorElem = document.querySelector<HTMLElement>("#widget-error")!;
 const widgetContentElem = document.querySelector<HTMLElement>("#widget-content")!;
 const activityNameElem = document.querySelector<HTMLElement>("#activity-name")!;
-const activityIconElem = document.querySelector<HTMLImageElement>("#activity-icon")!;
 const timerElem = document.querySelector<HTMLElement>("#timer")!;
 const timeElem = document.querySelector<HTMLElement>("#time")!;
 const msElem = document.querySelector<HTMLElement>("#ms")!;
 const counterElem = document.querySelector<HTMLElement>("#counter")!;
-const clearCountContentElem = document.querySelector<HTMLElement>("#clear-count-content")!;
 const dailyElem = document.querySelector<HTMLElement>("#daily")!;
 
 let currentActivity: CurrentActivity;
@@ -103,11 +100,10 @@ function refresh(playerDataStatus: PlayerDataStatus) {
     errorElem.classList.add("hidden");
     widgetContentElem.classList.remove("hidden");
 
-    const previousActivityHash = currentActivity?.activityHash ?? null;
     currentActivity = playerData.currentActivity;
 
     checkTimerInterval();
-    updateActivityDisplay(playerData.activityHistory, previousActivityHash);
+    updateActivityDisplay(playerData.activityHistory);
 
     let latestRaid = playerData.activityHistory[0];
 
@@ -129,55 +125,28 @@ function refresh(playerDataStatus: PlayerDataStatus) {
     doneInitialRefresh = true;
 }
 
-
-function updateActivityDisplay(activityHistory: PlayerDataStatus["lastUpdate"]["activityHistory"], _previousActivityHash: number | null) {
+function updateActivityDisplay(activityHistory: PlayerDataStatus["lastUpdate"]["activityHistory"]) {
     const activity = currentActivity;
     const activityInfo = activity?.activityInfo;
     const type = determineActivityType(activityInfo?.activityModes);
 
-    // Match the original timer behaviour: do not show activity UI while in Orbit
-    // or another untracked activity.
     if (!activity || !activityInfo || !type) {
         clearTimeout(activityNameHideTimer ?? undefined);
         activityNameHideTimer = null;
         lastActivityInstanceKey = null;
         activityNameElem.classList.add("hidden");
-        activityIconElem.removeAttribute("src");
-        activityIconElem.classList.add("hidden");
         counterElem.classList.add("hidden");
         return;
     }
 
-    // Show the name again for every newly started activity, even when two runs
-    // use the same activity hash.
     const activityInstanceKey = `${activity.activityHash}:${activity.startDate}`;
     if (activityInstanceKey !== lastActivityInstanceKey) {
         lastActivityInstanceKey = activityInstanceKey;
         showActivityName();
     }
 
-    const showClearCount = prefs.displayDailyClears;
-    if (showClearCount) {
+    if (prefs.displayDailyClears) {
         dailyElem.innerText = String(countActivityClears(activityHistory, activity.activityHash));
-        clearCountContentElem.classList.remove("hidden");
-    } else {
-        clearCountContentElem.classList.add("hidden");
-    }
-
-    const isRaidOrDungeon = type === "Raid" || type === "Dungeon";
-    const showIcon = prefs.displayActivityIcon && isRaidOrDungeon && !!activityInfo.typeIcon;
-
-    if (showIcon) {
-        activityIconElem.src = activityInfo.typeIcon!.startsWith("http")
-            ? activityInfo.typeIcon!
-            : `https://www.bungie.net${activityInfo.typeIcon!}`;
-        activityIconElem.classList.remove("hidden");
-    } else {
-        activityIconElem.removeAttribute("src");
-        activityIconElem.classList.add("hidden");
-    }
-
-    if (showClearCount || showIcon) {
         counterElem.classList.remove("hidden");
     } else {
         counterElem.classList.add("hidden");
