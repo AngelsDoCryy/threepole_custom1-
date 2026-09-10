@@ -2,10 +2,14 @@ use std::error::Error;
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
+    fs::{create_dir_all, read_to_string},
     hash::Hash,
+    path::PathBuf,
 };
 
 use async_trait::async_trait;
+use directories::BaseDirs;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use self::{
@@ -16,7 +20,7 @@ use self::{
     },
 };
 use crate::config::profiles::Profile;
-use crate::consts::{DUNGEON_ACTIVITY_HASH, RAID_ACTIVITY_HASH};
+use crate::consts::{CONFIG_DIR_NAME, DUNGEON_ACTIVITY_MODE, RAID_ACTIVITY_MODE};
 
 pub mod requests;
 pub mod responses;
@@ -98,52 +102,106 @@ impl Source<Profile, ProfileInfo> for ProfileInfoSource {
     }
 }
 
-#[derive(Default)]
+#[derive(Serialize, Deserialize, Default)]
+struct ActivityModeCache {
+    modes: HashMap<usize, Vec<usize>>,
+}
+
+impl ActivityModeCache {
+    fn path() -> Option<PathBuf> {
+        BaseDirs::new().map(|d| {
+            let mut path = d.data_dir().to_owned();
+            path.push(CONFIG_DIR_NAME);
+            path.push("activity-mode-cache.json");
+            path
+        })
+    }
+
+    fn load() -> Self {
+        let Some(path) = Self::path() else {
+            return Self::default();
+        };
+
+        read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    fn persist(&self) {
+        let Some(path) = Self::path() else {
+            return;
+        };
+
+        if let Some(parent) = path.parent() {
+            if create_dir_all(parent).is_err() {
+                return;
+            }
+        }
+
+        if let Ok(serialized) = serde_json::to_string(self) {
+            let _ = std::fs::write(path, serialized);
+        }
+    }
+
+    fn record_raid_or_dungeon(&mut self, activity_hash: usize, modes: &[usize]) {
+        let tracked_modes: Vec<usize> = modes
+            .iter()
+            .copied()
+            .filter(|m| *m == RAID_ACTIVITY_MODE || *m == DUNGEON_ACTIVITY_MODE)
+            .collect();
+
+        if tracked_modes.is_empty() || self.modes.get(&activity_hash) == Some(&tracked_modes) {
+            return;
+        }
+
+        self.modes.insert(activity_hash, tracked_modes);
+        self.persist();
+    }
+}
+
 pub struct ActivityInfoSource {
     cache: HashMap<usize, ActivityInfo>,
+    mode_cache: ActivityModeCache,
+}
+
+impl Default for ActivityInfoSource {
+    fn default() -> Self {
+        Self {
+            cache: HashMap::new(),
+            mode_cache: ActivityModeCache::load(),
+        }
+    }
+}
+
+impl ActivityInfoSource {
+    pub fn cached_modes_snapshot(&self) -> HashMap<usize, Vec<usize>> {
+        self.mode_cache.modes.clone()
+    }
 }
 
 #[async_trait]
 impl Source<usize, ActivityInfo> for ActivityInfoSource {
+    async fn get(&mut self, key: &usize) -> Result<ActivityInfo, ApiError> {
+        if let Some(value) = self.cache.get(key) {
+            return Ok(value.clone());
+        }
+
+        let value = Self::get_value(*key).await?;
+
+        self.mode_cache
+            .record_raid_or_dungeon(*key, &value.activity_modes);
+        self.cache.insert(*key, value.clone());
+
+        Ok(value)
+    }
+
     async fn get_value(activity_hash: usize) -> Result<ActivityInfo, ApiError> {
         let res_val = make_request(BungieRequest::GetDestinyActivityDefinition { activity_hash })
             .await
             .map_err(|e| ApiError::ResponseError(e))?;
 
-        let mut info: ActivityInfo =
-            serde_json::from_value(res_val).map_err(|e| ApiError::ResponseDeserializeError(e))?;
-
-        // For raids/dungeons use the generic Activity Type icon. This is more
-        // reliable than the individual Activity icon (some activities, such as
-        // Sundered Doctrine, intentionally have no per-activity icon).
-        if info.activity_type_hash == RAID_ACTIVITY_HASH
-            || info.activity_type_hash == DUNGEON_ACTIVITY_HASH
-        {
-            let type_val = make_request(BungieRequest::GetDestinyActivityTypeDefinition {
-                activity_type_hash: info.activity_type_hash,
-            })
-            .await;
-
-            if let Ok(type_val) = type_val {
-                #[derive(serde::Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct ActivityTypeInfo {
-                    display_properties: ActivityTypeDisplayProperties,
-                }
-
-                #[derive(serde::Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct ActivityTypeDisplayProperties {
-                    icon: Option<String>,
-                }
-
-                if let Ok(type_info) = serde_json::from_value::<ActivityTypeInfo>(type_val) {
-                    info.type_icon = type_info.display_properties.icon;
-                }
-            }
-        }
-
-        Ok(info)
+        serde_json::from_value(res_val).map_err(|e| ApiError::ResponseDeserializeError(e))
     }
 
     fn cache(&mut self) -> &mut HashMap<usize, ActivityInfo> {
