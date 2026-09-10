@@ -16,7 +16,7 @@ use crate::{
         Api, ApiError, Source,
     },
     config::profiles::Profile,
-    consts::{DUNGEON_ACTIVITY_MODE, RAID_ACTIVITY_MODE, STRIKE_ACTIVITY_MODE, LOSTSECTOR_ACTIVITY_MODE},
+    consts::{DUNGEON_ACTIVITY_MODE, LOSTSECTOR_ACTIVITY_MODE, RAID_ACTIVITY_MODE, STRIKE_ACTIVITY_MODE},
     ConfigContainer,
 };
 
@@ -114,7 +114,7 @@ impl PlayerDataPoller {
                 match res {
                     Ok(_) => {
                         let playerdata = PlayerData {
-                            current_activity: current_activity,
+                            current_activity,
                             activity_history,
                             profile_info,
                         };
@@ -144,9 +144,6 @@ impl PlayerDataPoller {
                     update_history(&app_handle, &mut last_update.activity_history, &profile).await
                 };
 
-                // The boolean return value of update_* functions represents whether or not
-                // the last_update should be resent to the overlay / details
-
                 match res {
                     Ok(true) => {
                         let mut lock = playerdata_clone.lock().await;
@@ -169,12 +166,11 @@ impl PlayerDataPoller {
         }));
     }
 
-    // For overlay / detail window to get initial data instead of waiting for poll
     pub fn get_data(&mut self) -> Option<PlayerDataStatus> {
-        return match &self.current_playerdata.try_lock() {
-            Ok(p) => Some((*p).clone()), // If playerdata doesn't exist, meaning poller isn't initialized
-            Err(_) => None, // If lock currently in use, meaning stat update is in progress
-        };
+        match &self.current_playerdata.try_lock() {
+            Ok(p) => Some((*p).clone()),
+            Err(_) => None,
+        }
     }
 }
 
@@ -218,19 +214,13 @@ async fn update_current(
         std::cmp::Ordering::Equal => {
             if last_activity.activity_info.is_none() {
                 return Ok(false);
-                // Return here, as once activity_info becomes None
-                // for a given activity start_date, it should
-                // stay None until start_date changes again
             }
 
             if last_activity.activity_hash == latest_activity.current_activity_hash {
                 return Ok(false);
-                // Return if the activity hash and time are the same
             }
         }
         std::cmp::Ordering::Greater => return Ok(false),
-        // Only return if our last-fetched activity is more recent,
-        // as current_hash can change without start_date changing
     }
 
     let api = handle.state::<Api>();
@@ -282,6 +272,11 @@ async fn update_history(
     let api = handle.state::<Api>();
 
     let profile_info = api.profile_info_source.lock().await.get(profile).await?;
+    let cached_modes = api
+        .activity_info_source
+        .lock()
+        .await
+        .cached_modes_snapshot();
 
     let mut past_activities: Vec<CompletedActivity> = Vec::new();
 
@@ -314,42 +309,25 @@ async fn update_history(
 
             let mut includes_past_cutoff = false;
 
-            for activity in activities.into_iter() {
+            for mut activity in activities.into_iter() {
                 if activity.period < cutoff {
                     includes_past_cutoff = true;
-                } else {
-                    let is_tracked_mode = activity.modes.iter().any(|m| {
-                        *m == RAID_ACTIVITY_MODE
-                            || *m == DUNGEON_ACTIVITY_MODE
-                            || *m == STRIKE_ACTIVITY_MODE
-                            || *m == LOSTSECTOR_ACTIVITY_MODE
-                    });
+                    continue;
+                }
 
-                    if is_tracked_mode {
-                        past_activities.push(activity);
-                    } else {
-                        // Some newer activity records can have incomplete mode data.
-                        // Fall back to Bungie's manifest definition for classification.
-                        let activity_info = api
-                            .activity_info_source
-                            .lock()
-                            .await
-                            .get(&activity.activity_hash)
-                            .await;
-
-                        if let Ok(info) = activity_info {
-                            let is_tracked_definition = info.activity_modes.iter().any(|m| {
-                                *m == RAID_ACTIVITY_MODE
-                                    || *m == DUNGEON_ACTIVITY_MODE
-                                    || *m == STRIKE_ACTIVITY_MODE
-                                    || *m == LOSTSECTOR_ACTIVITY_MODE
-                            });
-
-                            if is_tracked_definition {
-                                past_activities.push(activity);
-                            }
-                        }
+                if activity.modes.is_empty() {
+                    if let Some(modes) = cached_modes.get(&activity.activity_hash) {
+                        activity.modes = modes.clone();
                     }
+                }
+
+                if activity.modes.iter().any(|m| {
+                    *m == RAID_ACTIVITY_MODE
+                        || *m == DUNGEON_ACTIVITY_MODE
+                        || *m == STRIKE_ACTIVITY_MODE
+                        || *m == LOSTSECTOR_ACTIVITY_MODE
+                }) {
+                    past_activities.push(activity);
                 }
             }
 
@@ -361,8 +339,8 @@ async fn update_history(
         }
     }
 
-    if let Some(last) = last_history.into_iter().max() {
-        if let Some(new) = (&mut past_activities).into_iter().max() {
+    if let Some(last) = last_history.iter().max() {
+        if let Some(new) = past_activities.iter().max() {
             if last >= new {
                 return Ok(false);
             }
