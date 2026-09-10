@@ -55,22 +55,22 @@ Example:
 
 When switching activities, the displayed clear count automatically changes to the count for that activity.
 
-Daily reset behavior is preserved.
-
-### Raid / Dungeon activity icon
-
-- Displays the activity icon next to the clear counter
-- Automatically changes with the current activity
-- Can be enabled or disabled independently
+Daily reset behavior is preserved. The original Threepole calendar icon is used next to the clear counter.
 
 ### Additional Raid / Dungeon detection
 
 Improved activity detection for Raid and Dungeon activities that may not expose the normal activity mode information.
 
-This includes support for activities such as:
+A small local activity-mode cache is used so history processing does not need extra manifest requests. New Raid / Dungeon activities are still classified dynamically from Bungie manifest activity data when they are encountered.
 
-- Sundered Doctrine
-- other Raid / Dungeon activities using Bungie manifest activity data
+### Bungie API affinity handling
+
+- Reuses one HTTP client for the full app session
+- Preserves Bungie affinity cookies between API requests
+- Keeps the existing Current Activity polling interval unchanged
+- Does not add extra Bungie API polling
+
+This is intended to reduce cases where different Bungie backend servers return temporarily inconsistent current-activity state.
 
 ### Custom application icon
 
