@@ -28,9 +28,6 @@ pub enum BungieRequest<'a> {
     GetDestinyActivityDefinition {
         activity_hash: usize,
     },
-    GetDestinyActivityTypeDefinition {
-        activity_type_hash: usize,
-    },
 }
 
 #[derive(Deserialize)]
@@ -105,7 +102,6 @@ pub async fn make_request(req: BungieRequest<'_>) -> Result<Value, BungieRespons
             api_request(&format!("/Destiny2/{membership_type}/Account/{membership_id}/Character/{character_id}/Stats/Activities?mode=7&count=25&page={page}"), Method::GET)
         }
         BungieRequest::GetDestinyActivityDefinition { activity_hash } => api_request(&format!("/Destiny2/Manifest/DestinyActivityDefinition/{activity_hash}"), Method::GET),
-        BungieRequest::GetDestinyActivityTypeDefinition { activity_type_hash } => api_request(&format!("/Destiny2/Manifest/DestinyActivityTypeDefinition/{activity_type_hash}"), Method::GET),
     };
 
     let resp = builder
