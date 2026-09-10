@@ -23,37 +23,58 @@ let activityNameHideTimer: number | null = null;
 let doneInitialRefresh = false;
 
 let shown = false;
+let desiredShown = false;
+let updatingVisibility = false;
 let prefs: Preferences;
 let timerInterval;
 
 async function init() {
-    appWindow.listen("show", () => {
-        if (shown) {
-            return;
-        }
-
-        appWindow.show();
-        shown = true;
-
-        checkTimerInterval();
+    await appWindow.listen("show", () => {
+        desiredShown = true;
+        void updateVisibility();
     });
 
-    appWindow.listen("hide", () => {
-        if (!shown) {
-            return;
-        }
-
-        appWindow.hide();
-        shown = false;
-
-        checkTimerInterval();
+    await appWindow.listen("hide", () => {
+        desiredShown = false;
+        void updateVisibility();
     });
 
-    applyPreferences(await getPreferences());
-    refresh(await getPlayerdata());
+    let preferencesUpdated = false;
+    let playerdataUpdated = false;
+    let latestPlayerdata: PlayerDataStatus;
+    await appWindow.listen("preferences_update", (p: TauriEvent<Preferences>) => {
+        preferencesUpdated = true;
+        applyPreferences(p.payload);
+    });
+    await appWindow.listen("playerdata_update", (e: TauriEvent<PlayerDataStatus>) => {
+        playerdataUpdated = true;
+        latestPlayerdata = e.payload;
+        if (prefs) refresh(e.payload);
+    });
+    const initialPreferences = await getPreferences();
+    if (!preferencesUpdated) applyPreferences(initialPreferences);
+    if (playerdataUpdated) refresh(latestPlayerdata);
+    const initialPlayerdata = await getPlayerdata();
+    if (!playerdataUpdated) refresh(initialPlayerdata);
+}
 
-    appWindow.listen("preferences_update", (p: TauriEvent<Preferences>) => applyPreferences(p.payload));
-    appWindow.listen("playerdata_update", (e: TauriEvent<PlayerDataStatus>) => refresh(e.payload));
+async function updateVisibility() {
+    if (updatingVisibility) return;
+    updatingVisibility = true;
+    try {
+        while (shown !== desiredShown) {
+            const target = desiredShown;
+            if (target) await appWindow.show();
+            else await appWindow.hide();
+            shown = target;
+            checkTimerInterval();
+        }
+    } catch (error) {
+        // Do not mark a failed show/hide as successful; the next event retries.
+        console.warn("Overlay visibility update failed", error);
+    } finally {
+        updatingVisibility = false;
+    }
 }
 
 function createPopup(popup: Popup) {
@@ -82,6 +103,7 @@ function refresh(playerDataStatus: PlayerDataStatus) {
         widgetContentElem.classList.add("hidden");
 
         currentActivity = null;
+        checkTimerInterval();
         doneInitialRefresh = false;
 
         if (playerDataStatus?.error) {
@@ -196,6 +218,7 @@ function applyPreferences(p: Preferences) {
 }
 
 function timerTick() {
+    if (!currentActivity) return;
     let millis = Number(new Date()) - Number(new Date(currentActivity.startDate));
     timeElem.innerHTML = formatTime(millis);
     msElem.innerHTML = formatMillis(millis);

@@ -3,6 +3,7 @@ use std::{
     error::Error,
     fmt::{Display, Formatter},
     sync::Mutex,
+    time::Duration,
 };
 
 use once_cell::sync::Lazy;
@@ -150,6 +151,7 @@ fn remember_response_cookies(headers: &reqwest::header::HeaderMap) {
 fn api_request(path: &str, method: Method) -> RequestBuilder {
     let mut builder = HTTP_CLIENT
         .request(method, format!("{API_PATH}{path}"))
+        .timeout(Duration::from_secs(15))
         .header("User-Agent", USER_AGENT)
         .header("X-API-Key", API_KEY);
 

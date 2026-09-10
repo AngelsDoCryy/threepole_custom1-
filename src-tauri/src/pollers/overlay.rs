@@ -126,25 +126,25 @@ pub async fn overlay_poller(handle: AppHandle) {
             PollResult::Open(hwnd) => {
                 let mut dims = RECT::default();
 
-                unsafe { GetWindowRect(hwnd, &mut dims) };
-
-                overlay
-                    .set_position(PhysicalPosition {
+                let valid_rect = unsafe { GetWindowRect(hwnd, &mut dims) }.as_bool()
+                    && dims.right > dims.left && dims.bottom > dims.top;
+                if valid_rect {
+                    // A window can disappear or change during any of these calls.
+                    // Retry next tick instead of panicking and killing this poller.
+                    let positioned = overlay.set_position(PhysicalPosition {
                         x: dims.left,
                         y: dims.top,
-                    })
-                    .unwrap();
-
-                overlay
-                    .set_size(PhysicalSize {
+                    }).is_ok();
+                    let sized = positioned && overlay.set_size(PhysicalSize {
                         width: dims.right - dims.left,
                         height: dims.bottom - dims.top,
-                    })
-                    .unwrap();
-
-                overlay.emit("show", ()).unwrap();
+                    }).is_ok();
+                    if sized {
+                        let _ = overlay.emit("show", ());
+                    }
+                }
             }
-            PollResult::Closed => overlay.emit("hide", ()).unwrap(),
+            PollResult::Closed => { let _ = overlay.emit("hide", ()); },
             PollResult::Retain => (),
         }
 
