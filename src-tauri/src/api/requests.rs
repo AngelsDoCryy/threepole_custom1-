@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 
 use crate::consts::{API_KEY, API_PATH, USER_AGENT};
 
+// Reuse one HTTP client for the entire app session. This preserves Bungie's
+// affinity cookies and also reuses the underlying connection pool.
 static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
         .cookie_store(true)
