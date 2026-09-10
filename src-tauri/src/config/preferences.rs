@@ -13,7 +13,6 @@ pub struct Preferences {
     pub display_activity_name: bool,
     pub auto_hide_activity_name: bool,
     pub activity_name_hide_delay_seconds: u32,
-    pub display_activity_icon: bool,
 }
 
 impl Default for Preferences {
@@ -26,7 +25,6 @@ impl Default for Preferences {
             display_activity_name: true,
             auto_hide_activity_name: true,
             activity_name_hide_delay_seconds: 10,
-            display_activity_icon: true,
         }
     }
 }
