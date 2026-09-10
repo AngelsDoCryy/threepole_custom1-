@@ -3,11 +3,19 @@ use std::{
     fmt::{Display, Formatter},
 };
 
+use once_cell::sync::Lazy;
 use reqwest::{Client, Method, RequestBuilder};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::consts::{API_KEY, API_PATH, USER_AGENT};
+
+static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
+    Client::builder()
+        .cookie_store(true)
+        .build()
+        .expect("Failed to create Bungie API HTTP client")
+});
 
 pub enum BungieRequest<'a> {
     SearchDestinyPlayerByBungieName {
@@ -83,7 +91,7 @@ impl Display for BungieResponseError {
 impl Error for BungieResponseError {}
 
 fn api_request(path: &str, method: Method) -> RequestBuilder {
-    Client::new()
+    HTTP_CLIENT
         .request(method, format!("{API_PATH}{path}"))
         .header("User-Agent", USER_AGENT)
         .header("X-API-Key", API_KEY)
