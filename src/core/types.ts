@@ -32,10 +32,10 @@ export type Preferences = {
     displayDailyClears: boolean;
     displayClearNotifications: boolean;
     displayMilliseconds: boolean;
+    displayTimer: boolean;
     displayActivityName: boolean;
     autoHideActivityName: boolean;
     activityNameHideDelaySeconds: number;
-    displayActivityIcon: boolean;
 };
 
 export type PlayerDataStatus = {
@@ -59,7 +59,6 @@ export type ActivityInfo = {
     name: string;
     activityModes: number[];
     backgroundImage: string;
-    typeIcon?: string;
 };
 
 export type CompletedActivity = {

@@ -238,8 +238,6 @@ pub struct ActivityInfo {
     pub name: String,
     pub activity_modes: Vec<usize>,
     pub background_image: Option<String>,
-    pub activity_type_hash: usize,
-    pub type_icon: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for ActivityInfo {
@@ -262,9 +260,6 @@ impl<'de> Deserialize<'de> for ActivityInfo {
             name: String,
         }
 
-        // Some raid/dungeon definitions omit activityModeTypes. Fall back to
-        // activityTypeHash so newer activities (for example Sundered Doctrine)
-        // are still classified without touching the Destiny process.
         fn modes_from_hash(hash: usize) -> Vec<usize> {
             match hash {
                 RAID_ACTIVITY_HASH => vec![RAID_ACTIVITY_MODE],
@@ -286,8 +281,6 @@ impl<'de> Deserialize<'de> for ActivityInfo {
                 modes
             },
             background_image: activity.pgcr_image,
-            activity_type_hash: activity.activity_type_hash,
-            type_icon: None,
         })
     }
 }

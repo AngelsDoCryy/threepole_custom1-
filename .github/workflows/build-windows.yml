@@ -2,6 +2,8 @@ name: Build Threepole Custom for Windows
 
 on:
   workflow_dispatch:
+  push:
+    branches: [optimize-speed-cache-icon]
 
 jobs:
   build-windows:
@@ -37,8 +39,16 @@ jobs:
       - name: Install frontend dependencies
         run: yarn install
 
+      - name: Test overlay visibility recovery
+        run: node --test tests/overlay-visibility.test.mjs
+
       - name: Build MSI
         run: yarn tauri build
+
+      # Tauri configures Cargo features for the disabled updater before compiling.
+      # Test with that same feature set, then publish only if the tests pass.
+      - name: Test history regressions
+        run: cargo test --release --manifest-path src-tauri/Cargo.toml --bin app
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
