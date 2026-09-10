@@ -39,14 +39,13 @@ jobs:
       - name: Install frontend dependencies
         run: yarn install
 
-      - name: Build frontend for Rust tests
-        run: yarn build
-
-      - name: Test history regressions
-        run: cargo test --manifest-path src-tauri/Cargo.toml --bin app
-
       - name: Build MSI
         run: yarn tauri build
+
+      # Tauri configures Cargo features for the disabled updater before compiling.
+      # Test with that same feature set, then publish only if the tests pass.
+      - name: Test history regressions
+        run: cargo test --release --manifest-path src-tauri/Cargo.toml --bin app
 
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
