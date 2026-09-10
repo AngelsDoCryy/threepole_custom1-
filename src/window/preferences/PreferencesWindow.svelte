@@ -56,7 +56,7 @@
                 <div class="preference">
                     <StyledCheckbox
                         bind:checked={preferences.displayMilliseconds}
-                        disabled={!preferences.enableOverlay}
+                        disabled={!preferences.enableOverlay || !preferences.displayTimer}
                         >Display timer milliseconds</StyledCheckbox
                     >
                 </div>
@@ -64,6 +64,13 @@
 
             <h2>Custom features</h2>
             <div class="preference-group custom-group">
+                <div class="preference">
+                    <StyledCheckbox
+                        bind:checked={preferences.displayTimer}
+                        disabled={!preferences.enableOverlay}
+                        >Display timer</StyledCheckbox
+                    >
+                </div>
                 <div class="preference">
                     <StyledCheckbox
                         bind:checked={preferences.displayActivityName}

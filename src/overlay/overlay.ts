@@ -17,6 +17,7 @@ const counterElem = document.querySelector<HTMLElement>("#counter")!;
 const dailyElem = document.querySelector<HTMLElement>("#daily")!;
 
 let currentActivity: CurrentActivity;
+let currentActivityHistory: PlayerDataStatus["lastUpdate"]["activityHistory"] = [];
 let lastRaidId;
 let lastActivityInstanceKey: string | null = null;
 let activityNameHideTimer: number | null = null;
@@ -82,7 +83,7 @@ function createPopup(popup: Popup) {
 }
 
 function checkTimerInterval() {
-    if (!prefs || !shown || !determineActivityType(currentActivity?.activityInfo?.activityModes)) {
+    if (!prefs || !prefs.displayTimer || !shown || !determineActivityType(currentActivity?.activityInfo?.activityModes)) {
         clearTimeout(timerInterval);
         timerInterval = null;
         timerElem.classList.add("hidden");
@@ -103,6 +104,7 @@ function refresh(playerDataStatus: PlayerDataStatus) {
         widgetContentElem.classList.add("hidden");
 
         currentActivity = null;
+        currentActivityHistory = [];
         checkTimerInterval();
         doneInitialRefresh = false;
 
@@ -123,6 +125,7 @@ function refresh(playerDataStatus: PlayerDataStatus) {
     widgetContentElem.classList.remove("hidden");
 
     currentActivity = playerData.currentActivity;
+    currentActivityHistory = playerData.activityHistory;
 
     checkTimerInterval();
     updateActivityDisplay(playerData.activityHistory);
@@ -215,10 +218,11 @@ function applyPreferences(p: Preferences) {
     timerInterval = null;
 
     checkTimerInterval();
+    updateActivityDisplay(currentActivityHistory);
 }
 
 function timerTick() {
-    if (!currentActivity) return;
+    if (!currentActivity || !prefs?.displayTimer || !shown) return;
     let millis = Number(new Date()) - Number(new Date(currentActivity.startDate));
     timeElem.innerHTML = formatTime(millis);
     msElem.innerHTML = formatMillis(millis);

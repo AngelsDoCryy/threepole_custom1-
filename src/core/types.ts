@@ -32,6 +32,7 @@ export type Preferences = {
     displayDailyClears: boolean;
     displayClearNotifications: boolean;
     displayMilliseconds: boolean;
+    displayTimer: boolean;
     displayActivityName: boolean;
     autoHideActivityName: boolean;
     activityNameHideDelaySeconds: number;
