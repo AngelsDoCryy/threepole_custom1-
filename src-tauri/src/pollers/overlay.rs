@@ -4,7 +4,7 @@ use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize};
 use widestring::Utf16String;
 use windows::Win32::{
-    Foundation::{HWND, MAX_PATH, RECT},
+    Foundation::{CloseHandle, HWND, MAX_PATH, RECT},
     System::{
         ProcessStatus::K32GetModuleFileNameExW,
         Threading::{OpenProcess, PROCESS_QUERY_INFORMATION},
@@ -84,7 +84,12 @@ fn get_hwnd_exec(hwnd: HWND) -> Option<String> {
 
     let mut buf: [u16; MAX_PATH as usize] = [0; MAX_PATH as usize];
 
-    unsafe { K32GetModuleFileNameExW(h, None, &mut buf) };
+    let path_length = unsafe { K32GetModuleFileNameExW(h, None, &mut buf) };
+    // OpenProcess transfers ownership of this handle to us, even if lookup fails.
+    unsafe { let _ = CloseHandle(h); }
+    if path_length == 0 {
+        return None;
+    }
 
     let mut path_string = Utf16String::from_slice_lossy(&buf).to_string();
     path_string.retain(|c| c != '\0');

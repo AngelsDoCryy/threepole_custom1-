@@ -2,6 +2,8 @@ name: Build Threepole Custom for Windows
 
 on:
   workflow_dispatch:
+  push:
+    branches: [optimize-speed-cache-icon]
 
 jobs:
   build-windows:
@@ -36,6 +38,12 @@ jobs:
 
       - name: Install frontend dependencies
         run: yarn install
+
+      - name: Build frontend for Rust tests
+        run: yarn build
+
+      - name: Test history regressions
+        run: cargo test --manifest-path src-tauri/Cargo.toml --bin app
 
       - name: Build MSI
         run: yarn tauri build

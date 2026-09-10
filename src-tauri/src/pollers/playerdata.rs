@@ -315,18 +315,12 @@ async fn update_history(
                     continue;
                 }
 
-                if activity.modes.is_empty() {
-                    if let Some(modes) = cached_modes.get(&activity.activity_hash) {
-                        activity.modes = modes.clone();
-                    }
-                }
+                supplement_cached_modes(
+                    &mut activity.modes,
+                    cached_modes.get(&activity.activity_hash).map(Vec::as_slice),
+                );
 
-                if activity.modes.iter().any(|m| {
-                    *m == RAID_ACTIVITY_MODE
-                        || *m == DUNGEON_ACTIVITY_MODE
-                        || *m == STRIKE_ACTIVITY_MODE
-                        || *m == LOSTSECTOR_ACTIVITY_MODE
-                }) {
+                if has_tracked_mode(&activity.modes) {
                     past_activities.push(activity);
                 }
             }
@@ -339,19 +333,130 @@ async fn update_history(
         }
     }
 
-    if let Some(last) = last_history.iter().max() {
-        if let Some(new) = past_activities.iter().max() {
-            if last >= new {
-                return Ok(false);
+    Ok(replace_history_if_changed(last_history, past_activities))
+}
+
+fn supplement_cached_modes(modes: &mut Vec<usize>, cached: Option<&[usize]>) {
+    if !has_tracked_mode(modes) {
+        if let Some(cached) = cached {
+            for mode in cached {
+                if !modes.contains(mode) {
+                    modes.push(*mode);
+                }
             }
         }
     }
+}
 
-    past_activities.sort();
+fn has_tracked_mode(modes: &[usize]) -> bool {
+    modes.iter().any(|m| {
+        *m == RAID_ACTIVITY_MODE
+            || *m == DUNGEON_ACTIVITY_MODE
+            || *m == STRIKE_ACTIVITY_MODE
+            || *m == LOSTSECTOR_ACTIVITY_MODE
+    })
+}
 
-    let sorted_activities = past_activities.into_iter().rev().collect();
+fn replace_history_if_changed(
+    last_history: &mut Vec<CompletedActivity>,
+    mut activities: Vec<CompletedActivity>,
+) -> bool {
+    // Include a stable tie-breaker for runs with the same start time.
+    activities.sort_by(|a, b| {
+        b.period.cmp(&a.period).then_with(|| a.instance_id.cmp(&b.instance_id))
+    });
 
-    *last_history = sorted_activities;
+    // Compare complete records: older arrivals and corrected results matter too.
+    if *last_history == activities {
+        return false;
+    }
 
-    Ok(true)
+    *last_history = activities;
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn activity(seconds: i64, id: &str) -> CompletedActivity {
+        CompletedActivity {
+            period: DateTime::parse_from_rfc3339("2026-09-10T00:00:00Z")
+                .unwrap().with_timezone(&Utc) + chrono::Duration::seconds(seconds),
+            instance_id: id.to_string(),
+            activity_hash: 123,
+            modes: vec![DUNGEON_ACTIVITY_MODE],
+            completed: false,
+            activity_duration: "1:00".to_string(),
+            activity_duration_seconds: 60,
+        }
+    }
+
+    #[test]
+    fn accepts_late_older_activity() {
+        let newest = activity(20, "newest");
+        let mut history = vec![newest.clone()];
+        assert!(replace_history_if_changed(
+            &mut history, vec![activity(10, "late"), newest]
+        ));
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].instance_id, "newest");
+    }
+
+    #[test]
+    fn accepts_corrected_completion_and_duration() {
+        let mut corrected = activity(20, "same");
+        let mut history = vec![corrected.clone()];
+        corrected.completed = true;
+        corrected.activity_duration_seconds = 61;
+        corrected.activity_duration = "1:01".to_string();
+        assert!(replace_history_if_changed(&mut history, vec![corrected.clone()]));
+        assert_eq!(history, vec![corrected]);
+    }
+
+    #[test]
+    fn removes_old_records_and_clears_at_reset() {
+        let newest = activity(20, "newest");
+        let mut history = vec![newest.clone(), activity(10, "old")];
+        assert!(replace_history_if_changed(&mut history, vec![newest]));
+        assert!(replace_history_if_changed(&mut history, vec![]));
+        assert!(history.is_empty());
+        assert!(!replace_history_if_changed(&mut history, vec![]));
+    }
+
+    #[test]
+    fn unchanged_history_ignores_response_order_even_with_equal_times() {
+        let a = activity(20, "a");
+        let b = activity(20, "b");
+        let mut history = vec![];
+        assert!(replace_history_if_changed(&mut history, vec![b.clone(), a.clone()]));
+        assert!(!replace_history_if_changed(&mut history, vec![a, b]));
+    }
+
+    #[test]
+    fn cache_supplements_empty_and_generic_modes_without_duplicates() {
+        for mut modes in [vec![], vec![7]] {
+            supplement_cached_modes(&mut modes, Some(&[DUNGEON_ACTIVITY_MODE]));
+            assert!(has_tracked_mode(&modes));
+            let once = modes.clone();
+            supplement_cached_modes(&mut modes, Some(&[DUNGEON_ACTIVITY_MODE]));
+            assert_eq!(modes, once);
+        }
+        let mut generic = vec![7];
+        supplement_cached_modes(&mut generic, None);
+        assert_eq!(generic, vec![7]);
+        let mut known = vec![RAID_ACTIVITY_MODE];
+        supplement_cached_modes(&mut known, Some(&[DUNGEON_ACTIVITY_MODE]));
+        assert_eq!(known, vec![RAID_ACTIVITY_MODE]);
+    }
+
+    #[test]
+    fn incomplete_modes_require_fallback_but_known_modes_do_not() {
+        assert!(!has_tracked_mode(&[]));
+        assert!(!has_tracked_mode(&[7]));
+        for mode in [RAID_ACTIVITY_MODE, DUNGEON_ACTIVITY_MODE,
+                     STRIKE_ACTIVITY_MODE, LOSTSECTOR_ACTIVITY_MODE] {
+            assert!(has_tracked_mode(&[7, mode]));
+        }
+    }
 }
