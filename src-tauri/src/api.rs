@@ -118,8 +118,9 @@ impl ActivityModeCache {
     }
 
     fn load() -> Self {
-        let Some(path) = Self::path() else {
-            return Self::default();
+        let path = match Self::path() {
+            Some(path) => path,
+            None => return Self::default(),
         };
 
         read_to_string(path)
@@ -129,8 +130,9 @@ impl ActivityModeCache {
     }
 
     fn persist(&self) {
-        let Some(path) = Self::path() else {
-            return;
+        let path = match Self::path() {
+            Some(path) => path,
+            None => return,
         };
 
         if let Some(parent) = path.parent() {
