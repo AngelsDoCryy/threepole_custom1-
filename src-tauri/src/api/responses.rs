@@ -74,6 +74,38 @@ impl<'de> Deserialize<'de> for ProfileInfo {
 pub struct ProfileCurrentActivities {
     pub privacy: usize,
     pub activities: Option<HashMap<String, LatestCharacterActivity>>,
+    pub response_minted_timestamp: Option<DateTime<Utc>>,
+    pub secondary_components_minted_timestamp: Option<DateTime<Utc>>,
+    pub transitory_start_time: Option<DateTime<Utc>>,
+}
+
+// Optional timing data must not make the existing CharacterActivities parser
+// fail when Bungie omits it, restricts it, or returns an unexpected value.
+fn optional_component<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok())
+}
+
+#[derive(Deserialize)]
+struct ProfileTransitoryComponent {
+    data: Option<ProfileTransitoryData>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileTransitoryData {
+    current_activity: Option<ProfileTransitoryActivity>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ProfileTransitoryActivity {
+    #[serde(default, deserialize_with = "optional_component")]
+    start_time: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Clone, PartialEq, Eq)]
@@ -105,6 +137,12 @@ impl<'de> Deserialize<'de> for ProfileCurrentActivities {
         #[serde(rename_all = "camelCase")]
         struct _Profile {
             character_activities: _CurrentActivities,
+            #[serde(default, deserialize_with = "optional_component")]
+            response_minted_timestamp: Option<DateTime<Utc>>,
+            #[serde(default, deserialize_with = "optional_component")]
+            secondary_components_minted_timestamp: Option<DateTime<Utc>>,
+            #[serde(default, deserialize_with = "optional_component")]
+            profile_transitory_data: Option<ProfileTransitoryComponent>,
         }
 
         #[derive(Deserialize)]
@@ -124,6 +162,12 @@ impl<'de> Deserialize<'de> for ProfileCurrentActivities {
         let profile = _Profile::deserialize(deserializer)?;
         Ok(Self {
             privacy: profile.character_activities.privacy,
+            response_minted_timestamp: profile.response_minted_timestamp,
+            secondary_components_minted_timestamp: profile.secondary_components_minted_timestamp,
+            transitory_start_time: profile.profile_transitory_data
+                .and_then(|component| component.data)
+                .and_then(|data| data.current_activity)
+                .and_then(|activity| activity.start_time),
             activities: profile.character_activities.data.map(|d| {
                 d.into_iter()
                     .map(|e| {
@@ -282,5 +326,88 @@ impl<'de> Deserialize<'de> for ActivityInfo {
             },
             background_image: activity.pgcr_image,
         })
+    }
+}
+
+#[cfg(test)]
+mod timing_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn profile() -> serde_json::Value {
+        json!({
+            "characterActivities": { "privacy": 1, "data": {
+                "character": {
+                    "dateActivityStarted": "2026-09-17T00:00:10Z",
+                    "currentActivityHash": 123
+                }
+            }},
+            "responseMintedTimestamp": "2026-09-17T00:01:30Z",
+            "secondaryComponentsMintedTimestamp": "2026-09-17T00:01:35Z",
+            "profileTransitoryData": { "privacy": 1, "data": {
+                "currentActivity": { "startTime": "2026-09-17T00:01:10Z" }
+            }}
+        })
+    }
+
+    #[test]
+    fn parses_both_independent_freshness_timestamps_and_start_time() {
+        let parsed: ProfileCurrentActivities = serde_json::from_value(profile()).unwrap();
+        assert!(parsed.response_minted_timestamp < parsed.secondary_components_minted_timestamp);
+        assert_eq!(parsed.transitory_start_time.unwrap().to_rfc3339(), "2026-09-17T00:01:10+00:00");
+        assert_eq!(parsed.activities.unwrap()["character"].current_activity_hash, 123);
+    }
+
+    #[test]
+    fn missing_private_null_and_malformed_transitory_keep_character_data() {
+        for optional in [
+            serde_json::Value::Null,
+            json!({ "privacy": 2 }),
+            json!({ "privacy": 2, "data": null }),
+            json!({ "data": { "currentActivity": null } }),
+            json!({ "data": { "currentActivity": { "startTime": null } } }),
+            json!({ "data": { "currentActivity": { "startTime": "not-a-time" } } }),
+            json!({ "data": { "currentActivity": { "startTime": 1234 } } }),
+            json!({ "data": [] }),
+        ] {
+            let mut value = profile();
+            value["profileTransitoryData"] = optional;
+            let parsed: ProfileCurrentActivities = serde_json::from_value(value).unwrap();
+            assert!(parsed.transitory_start_time.is_none());
+            assert_eq!(parsed.activities.unwrap()["character"].current_activity_hash, 123);
+        }
+        let mut value = profile();
+        value.as_object_mut().unwrap().remove("profileTransitoryData");
+        let parsed: ProfileCurrentActivities = serde_json::from_value(value).unwrap();
+        assert!(parsed.transitory_start_time.is_none());
+    }
+
+    #[test]
+    fn absent_or_invalid_freshness_metadata_preserves_legacy_parsing() {
+        for optional in [serde_json::Value::Null, json!("invalid"), json!(17)] {
+            let mut value = profile();
+            value["responseMintedTimestamp"] = optional.clone();
+            value["secondaryComponentsMintedTimestamp"] = optional;
+            let parsed: ProfileCurrentActivities = serde_json::from_value(value).unwrap();
+            assert!(parsed.response_minted_timestamp.is_none());
+            assert!(parsed.secondary_components_minted_timestamp.is_none());
+            assert!(parsed.activities.is_some());
+        }
+        let mut value = profile();
+        for field in ["responseMintedTimestamp", "secondaryComponentsMintedTimestamp"] {
+            value.as_object_mut().unwrap().remove(field);
+        }
+        let parsed: ProfileCurrentActivities = serde_json::from_value(value).unwrap();
+        assert!(parsed.response_minted_timestamp.is_none());
+        assert!(parsed.secondary_components_minted_timestamp.is_none());
+    }
+
+    #[test]
+    fn private_character_data_stays_private_even_with_transitory() {
+        let mut value = profile();
+        value["characterActivities"] = json!({ "privacy": 2 });
+        let parsed: ProfileCurrentActivities = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.privacy, 2);
+        assert!(parsed.activities.is_none());
     }
 }

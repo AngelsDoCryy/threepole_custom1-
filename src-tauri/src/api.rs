@@ -89,7 +89,7 @@ impl Source<Profile, ProfileInfo> for ProfileInfoSource {
         let res_val = make_request(BungieRequest::GetProfile {
             membership_type: profile.account_platform,
             membership_id: &profile.account_id,
-            component: 100,
+            components: &[100],
         })
         .await
         .map_err(|e| ApiError::ResponseError(e))?;
@@ -238,7 +238,9 @@ impl Api {
         let res_val = make_request(BungieRequest::GetProfile {
             membership_type: profile.account_platform,
             membership_id: &profile.account_id,
-            component: 204,
+            // Keep one request and the existing polling cadence. Transitory is
+            // a second timing source, not a separate polling task.
+            components: &[204, 1000],
         })
         .await
         .map_err(|e| ApiError::ResponseError(e))?;

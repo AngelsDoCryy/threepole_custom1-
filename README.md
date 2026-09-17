@@ -63,6 +63,17 @@ Improved activity detection for Raid and Dungeon activities that may not expose 
 
 A small local activity-mode cache is used so history processing does not need extra manifest requests. New Raid / Dungeon activities are still classified dynamically from Bungie manifest activity data when they are encountered.
 
+### Current activity timing (1.1.3)
+
+- Fetches CharacterActivities (204) and Transitory (1000) together in one GetProfile request.
+- Keeps the existing two-second pause between current-activity requests; no extra polling task, service, or dependency is added.
+- Compares Bungie's primary and secondary generation timestamps separately to reject older snapshots.
+- Can use a newer Transitory start time when the character snapshot was generated at or after that start. Transitory has no activity hash; this freshness check reduces mismatched snapshots, but cannot guarantee that both components describe the same run.
+- Missing, private, malformed, future-dated, or older Transitory data falls back to the existing character timing. An accepted timer does not jump back when optional data disappears.
+- Orbit and activity-name changes are checked against character observations, independently of a timer already advanced by Transitory.
+- Bungie controls when fresh data becomes available. This cannot guarantee instant switches or a fixed delay; real in-game latency still needs to be measured.
+- Activity-name, timer, clears, and notification preferences remain independent. The local activity-mode cache contains classification data, not live timer state.
+
 ### Bungie API affinity handling
 
 - Reuses one HTTP client for the full app session

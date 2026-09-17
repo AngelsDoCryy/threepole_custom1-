@@ -32,7 +32,7 @@ pub enum BungieRequest<'a> {
     GetProfile {
         membership_type: usize,
         membership_id: &'a str,
-        component: usize,
+        components: &'a [usize],
     },
     GetActivityHistory {
         membership_type: usize,
@@ -178,10 +178,11 @@ pub async fn make_request(req: BungieRequest<'_>) -> Result<Value, BungieRespons
         BungieRequest::GetProfile {
             membership_type,
             membership_id,
-            component,
+            components,
         } => api_request(
             &format!(
-                "/Destiny2/{membership_type}/Profile/{membership_id}?components={component}"
+                "/Destiny2/{membership_type}/Profile/{membership_id}?components={}",
+                components.iter().map(usize::to_string).collect::<Vec<_>>().join(",")
             ),
             Method::GET,
         ),

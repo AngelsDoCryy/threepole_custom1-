@@ -9,6 +9,8 @@ use tauri::{
 };
 use tokio::sync::Mutex;
 
+use super::activity_timing::ActivityTiming;
+
 use crate::{
     api::{
         requests::BungieResponseError,
@@ -106,10 +108,11 @@ impl PlayerDataPoller {
                 activity_info: None,
             };
             let mut activity_history = Vec::new();
+            let mut activity_timing = ActivityTiming::default();
 
             loop {
                 // Initial failures keep retrying; no app restart is required.
-                let result = match update_current(&app_handle, &mut current_activity, &profile).await {
+                let result = match update_current(&app_handle, &mut current_activity, &profile, &mut activity_timing).await {
                     Ok(_) => update_history(&app_handle, &mut activity_history, &profile).await,
                     Err(error) => Err(error),
                 };
@@ -143,7 +146,7 @@ impl PlayerDataPoller {
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     let mut current = playerdata_clone.lock().await
                         .last_update.as_ref().unwrap().current_activity.clone();
-                    let result = update_current(&app_handle, &mut current, &profile).await;
+                    let result = update_current(&app_handle, &mut current, &profile, &mut activity_timing).await;
                     let mut state = playerdata_clone.lock().await;
                     match result {
                         Ok(changed) => {
@@ -212,6 +215,7 @@ async fn update_current(
     handle: &AppHandle,
     last_activity: &mut CurrentActivity,
     profile: &Profile,
+    activity_timing: &mut ActivityTiming,
 ) -> Result<bool> {
     let current_activities = Api::get_profile_activities(profile).await?;
 
@@ -227,6 +231,14 @@ async fn update_current(
         .into_iter()
         .max()
         .ok_or(anyhow!("No character data for profile"))?;
+
+    let latest_activity = activity_timing.resolve(
+        latest_activity,
+        current_activities.response_minted_timestamp,
+        current_activities.secondary_components_minted_timestamp,
+        current_activities.transitory_start_time,
+        Utc::now(),
+    ).ok_or(anyhow!("No valid current activity timestamp"))?;
 
     if !should_refresh_current(last_activity, &latest_activity) {
         return Ok(false);
@@ -256,10 +268,9 @@ async fn update_current(
 }
 
 fn should_refresh_current(last: &CurrentActivity, latest: &LatestCharacterActivity) -> bool {
-    if latest.date_activity_started < last.start_date {
-        return false;
-    }
-    latest.date_activity_started > last.start_date
+    // ActivityTiming rejects stale observations before this comparison. Hash
+    // updates/orbit may arrive with a 204 time behind the Transitory timer.
+    latest.date_activity_started != last.start_date
         || latest.current_activity_hash != last.activity_hash
         || (latest.current_activity_hash != 0 && last.activity_info.is_none())
 }
@@ -489,19 +500,16 @@ mod tests {
     }
 
     #[test]
-    fn current_guard_ignores_older_responses_and_unchanged_orbit() {
+    fn unchanged_orbit_does_not_refresh() {
         let last = CurrentActivity {
             start_date: activity(20, "time").period,
             activity_hash: 0,
             activity_info: None,
         };
-        let mut latest = LatestCharacterActivity {
+        let latest = LatestCharacterActivity {
             date_activity_started: last.start_date,
             current_activity_hash: 0,
         };
-        assert!(!should_refresh_current(&last, &latest));
-        latest.current_activity_hash = 456;
-        latest.date_activity_started = activity(10, "old").period;
         assert!(!should_refresh_current(&last, &latest));
     }
 

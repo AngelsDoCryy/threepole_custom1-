@@ -47,7 +47,7 @@ jobs:
 
       # Tauri configures Cargo features for the disabled updater before compiling.
       # Test with that same feature set, then publish only if the tests pass.
-      - name: Test history regressions
+      - name: Test Rust regressions
         run: cargo test --release --manifest-path src-tauri/Cargo.toml --bin app
 
       - name: Upload MSI artifact
