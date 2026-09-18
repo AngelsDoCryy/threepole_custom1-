@@ -55,22 +55,35 @@ Example:
 
 When switching activities, the displayed clear count automatically changes to the count for that activity.
 
-Daily reset behavior is preserved.
-
-### Raid / Dungeon activity icon
-
-- Displays the activity icon next to the clear counter
-- Automatically changes with the current activity
-- Can be enabled or disabled independently
+Daily reset behavior is preserved. The original Threepole calendar icon is used next to the clear counter.
 
 ### Additional Raid / Dungeon detection
 
 Improved activity detection for Raid and Dungeon activities that may not expose the normal activity mode information.
 
-This includes support for activities such as:
+A small local activity-mode cache is used so history processing does not need extra manifest requests. New Raid / Dungeon activities are still classified dynamically from Bungie manifest activity data when they are encountered.
 
-- Sundered Doctrine
-- other Raid / Dungeon activities using Bungie manifest activity data
+### Current activity timing (1.1.4)
+
+- Fetches CharacterActivities (204) on its own, like the original status request, with the existing two-second pause between requests.
+- Fetches optional Transitory (1000) independently with a ten-second pause, adding at most six requests per minute in steady state. All pollers share the existing HTTP client and are cancelled together on profile change/Exit. No background service or runtime dependency is added.
+- Slow or failed Transitory responses cannot hold up the activity status request. The latest available optional snapshot is considered when a status response arrives.
+- Compares Bungie's primary and secondary generation timestamps separately to reject older snapshots.
+- Can use a newer Transitory start time when the character snapshot was generated at or after that start. Transitory has no activity hash; this freshness check reduces mismatched snapshots, but cannot guarantee that both components describe the same run.
+- Missing, private, malformed, future-dated, or older Transitory data falls back to the existing character timing. An accepted timer does not jump back when optional data disappears.
+- Orbit and activity-name changes use character observations, independently of a timer already advanced by Transitory. A newer primary snapshot can change status even when the activity start time moves backwards, including an epoch timestamp in orbit.
+- Confirmed orbit clears the old optional start time. Clear notifications come from activity history and may arrive before live status; they never force orbit or stop a later run.
+- Bungie controls when fresh data becomes available. This cannot guarantee instant switches or a fixed delay; real in-game latency still needs to be measured.
+- Activity-name, timer, clears, and notification preferences remain independent. The local activity-mode cache contains classification data, not live timer state.
+
+### Bungie API affinity handling
+
+- Reuses one HTTP client for the full app session
+- Preserves Bungie affinity cookies between API requests
+- Keeps the existing Current Activity polling interval unchanged
+- The affinity handling itself adds no requests; the separate optional timing cadence is described above
+
+This is intended to reduce cases where different Bungie backend servers return temporarily inconsistent current-activity state.
 
 ### Custom application icon
 
