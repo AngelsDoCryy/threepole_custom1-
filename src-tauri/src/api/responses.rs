@@ -79,6 +79,27 @@ pub struct ProfileCurrentActivities {
     pub transitory_start_time: Option<DateTime<Utc>>,
 }
 
+// Component 1000 is optional and fetched independently. A failed or incomplete
+// timing response must never prevent a component 204 status update.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileTransitoryTiming {
+    #[serde(default, deserialize_with = "optional_component")]
+    pub secondary_components_minted_timestamp: Option<DateTime<Utc>>,
+    #[serde(default, rename = "profileTransitoryData", deserialize_with = "transitory_start")]
+    pub start_time: Option<DateTime<Utc>>,
+}
+
+fn transitory_start<'de, D>(deserializer: D) -> Result<Option<DateTime<Utc>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let component: Option<ProfileTransitoryComponent> = optional_component(deserializer)?;
+    Ok(component.and_then(|component| component.data)
+        .and_then(|data| data.current_activity)
+        .and_then(|activity| activity.start_time))
+}
+
 // Optional timing data must not make the existing CharacterActivities parser
 // fail when Bungie omits it, restricts it, or returns an unexpected value.
 fn optional_component<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -409,5 +430,28 @@ mod timing_tests {
         let parsed: ProfileCurrentActivities = serde_json::from_value(value).unwrap();
         assert_eq!(parsed.privacy, 2);
         assert!(parsed.activities.is_none());
+    }
+
+    #[test]
+    fn standalone_transitory_does_not_require_character_activities() {
+        let mut value = profile();
+        value.as_object_mut().unwrap().remove("characterActivities");
+        value.as_object_mut().unwrap().remove("responseMintedTimestamp");
+        let parsed: ProfileTransitoryTiming = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed.start_time.unwrap().to_rfc3339(), "2026-09-17T00:01:10+00:00");
+        assert_eq!(parsed.secondary_components_minted_timestamp.unwrap().to_rfc3339(), "2026-09-17T00:01:35+00:00");
+    }
+
+    #[test]
+    fn standalone_optional_timing_tolerates_missing_and_malformed_data() {
+        for value in [json!({}), json!({"profileTransitoryData": null}),
+            json!({"profileTransitoryData": {"privacy": 2}}),
+            json!({"profileTransitoryData": {"data": {"currentActivity": null}}}),
+            json!({"profileTransitoryData": {"data": {"currentActivity": {"startTime": "invalid"}}},
+                "secondaryComponentsMintedTimestamp": "invalid"})] {
+            let parsed: ProfileTransitoryTiming = serde_json::from_value(value).unwrap();
+            assert!(parsed.start_time.is_none());
+            assert!(parsed.secondary_components_minted_timestamp.is_none());
+        }
     }
 }

@@ -39,8 +39,8 @@ jobs:
       - name: Install frontend dependencies
         run: yarn install
 
-      - name: Test overlay visibility recovery
-        run: node --test tests/overlay-visibility.test.mjs
+      - name: Test overlay regressions
+        run: node --test tests/overlay-visibility.test.mjs tests/overlay-activity.test.mjs
 
       - name: Build MSI
         run: yarn tauri build

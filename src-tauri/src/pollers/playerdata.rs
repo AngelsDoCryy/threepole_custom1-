@@ -14,7 +14,7 @@ use super::activity_timing::ActivityTiming;
 use crate::{
     api::{
         requests::BungieResponseError,
-        responses::{ActivityInfo, CompletedActivity, LatestCharacterActivity, ProfileInfo},
+        responses::{ActivityInfo, CompletedActivity, LatestCharacterActivity, ProfileInfo, ProfileTransitoryTiming},
         Api, ApiError, Source,
     },
     config::profiles::Profile,
@@ -109,10 +109,11 @@ impl PlayerDataPoller {
             };
             let mut activity_history = Vec::new();
             let mut activity_timing = ActivityTiming::default();
+            let transitory_timing = Mutex::new(ProfileTransitoryTiming::default());
 
             loop {
                 // Initial failures keep retrying; no app restart is required.
-                let result = match update_current(&app_handle, &mut current_activity, &profile, &mut activity_timing).await {
+                let result = match update_current(&app_handle, &mut current_activity, &profile, &mut activity_timing, &transitory_timing).await {
                     Ok(_) => update_history(&app_handle, &mut activity_history, &profile).await,
                     Err(error) => Err(error),
                 };
@@ -139,14 +140,14 @@ impl PlayerDataPoller {
                 send_data_update(&app_handle, state.clone());
             }
 
-            // Both futures belong to this task: reset/Exit cancels both.
-            // A slow history request must not stop current-activity polling.
+            // All futures belong to this task: reset/Exit cancels them together.
+            // Slow history or optional timing must not stop status polling.
             let current_updates = async {
                 loop {
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     let mut current = playerdata_clone.lock().await
                         .last_update.as_ref().unwrap().current_activity.clone();
-                    let result = update_current(&app_handle, &mut current, &profile, &mut activity_timing).await;
+                    let result = update_current(&app_handle, &mut current, &profile, &mut activity_timing, &transitory_timing).await;
                     let mut state = playerdata_clone.lock().await;
                     match result {
                         Ok(changed) => {
@@ -189,7 +190,18 @@ impl PlayerDataPoller {
                 }
             };
 
-            tokio::join!(current_updates, history_updates);
+            let transitory_updates = async {
+                loop {
+                    // Never hold the snapshot lock during a network request.
+                    // Errors affect only this optional source; 204 keeps working.
+                    if let Ok(timing) = Api::get_profile_transitory(&profile).await {
+                        *transitory_timing.lock().await = timing;
+                    }
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                }
+            };
+
+            tokio::join!(current_updates, history_updates, transitory_updates);
         }));
     }
 
@@ -216,6 +228,7 @@ async fn update_current(
     last_activity: &mut CurrentActivity,
     profile: &Profile,
     activity_timing: &mut ActivityTiming,
+    transitory_timing: &Mutex<ProfileTransitoryTiming>,
 ) -> Result<bool> {
     let current_activities = Api::get_profile_activities(profile).await?;
 
@@ -232,11 +245,12 @@ async fn update_current(
         .max()
         .ok_or(anyhow!("No character data for profile"))?;
 
+    let transitory = transitory_timing.lock().await.clone();
     let latest_activity = activity_timing.resolve(
         latest_activity,
         current_activities.response_minted_timestamp,
-        current_activities.secondary_components_minted_timestamp,
-        current_activities.transitory_start_time,
+        transitory.secondary_components_minted_timestamp,
+        transitory.start_time,
         Utc::now(),
     ).ok_or(anyhow!("No valid current activity timestamp"))?;
 

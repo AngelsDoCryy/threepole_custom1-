@@ -1,6 +1,15 @@
-# Threepole Custom 1.1.3
+# Threepole Custom 1.1.4
 
 Based on Threepole 1.1.2.
+
+## 1.1.4: Orbit and activity status responsiveness
+- Restores the standalone CharacterActivities (204) request with the existing two-second pause. Optional Transitory (1000) is fetched independently, immediately after initial data loads and then with a ten-second pause (at most six extra requests per minute in steady state).
+- A slow or failed Transitory request cannot hold up the activity-name, restart, or orbit status path. All polling remains in the existing cancellable app task and shares the existing HTTP client.
+- A newer primary snapshot can report orbit or a different activity even if its activity start time moves backwards. Older primary snapshots remain rejected; missing freshness metadata retains the conservative fallback.
+- Confirmed orbit discards the previous run's optional start time. Transitory alone still cannot identify a new activity or prove that the player has entered orbit.
+- Clear notifications remain independent: a completed result may arrive before live status changes, and does not force orbit or stop a subsequent run.
+- Adds Rust regressions for backward/epoch orbit timestamps, different activities, missing optional timing and reentry, plus overlay tests for clears arriving before orbit or after the next run starts.
+- This addresses local blocking and rejection paths. The exact cause of a live comparison cannot be proved without API captures, and Bungie's own update delay remains.
 
 ## 1.1.3: Current activity timing
 - Queries components 204 and 1000 in the same profile request, with unchanged polling intervals.

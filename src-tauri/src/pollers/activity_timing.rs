@@ -35,10 +35,20 @@ impl ActivityTiming {
         let older_character = self.character.as_ref().map_or(false, |accepted| {
             latest.date_activity_started < accepted.date_activity_started
         });
+        let newer_primary = match (primary_minted, self.primary_watermark) {
+            (Some(incoming), Some(accepted)) => incoming > accepted,
+            (Some(_), None) => true,
+            _ => false,
+        };
 
         let valid_character = valid_time(latest.date_activity_started, now)
             || (latest.current_activity_hash == 0 && latest.date_activity_started.timestamp() == 0);
-        if !older_primary && !older_character && valid_character {
+        // dateActivityStarted is an activity start, not a status-generation
+        // timestamp. A newer status can report orbit with an older/epoch start,
+        // or another activity whose start predates the previous observation.
+        // Use response freshness first; retain the conservative legacy fallback
+        // only when freshness cannot establish that this is a newer snapshot.
+        if !older_primary && (!older_character || newer_primary) && valid_character {
             let same_hash = self.character.as_ref().map_or(false, |accepted| {
                 latest.current_activity_hash == accepted.current_activity_hash
             });
@@ -71,7 +81,11 @@ impl ActivityTiming {
         }
 
         let character = self.character.as_ref()?;
-        if character.current_activity_hash != 0 {
+        if character.current_activity_hash == 0 {
+            // Consume the optional freshness watermark, but do not carry a
+            // previous run's timing through an observed return to orbit.
+            self.transitory_start = None;
+        } else {
             if let (Some(start), Some(primary)) = (self.transitory_start, self.primary_minted) {
                 // Transitory does not include an activity hash. Require a 204
                 // snapshot generated at/after its start to avoid pairing a
@@ -216,6 +230,62 @@ mod tests {
     }
 
     #[test]
+    fn fresh_orbit_is_accepted_even_when_character_start_moves_backwards() {
+        let mut tracker = ActivityTiming::default();
+        sample(&mut tracker, 123, 70, Some(90), Some(90), Some(70));
+        let orbit = sample(&mut tracker, 0, 10, Some(100), Some(95), Some(70));
+        assert_eq!(orbit.current_activity_hash, 0);
+        assert_eq!(orbit.date_activity_started, time(10));
+        // An older active snapshot cannot revive the previous run.
+        assert_eq!(sample(&mut tracker, 123, 70, Some(90), Some(95), Some(70)), orbit);
+    }
+
+    #[test]
+    fn fresh_epoch_orbit_stops_an_active_run_and_allows_the_next_run() {
+        let mut tracker = ActivityTiming::default();
+        sample(&mut tracker, 123, 70, Some(90), Some(90), Some(70));
+        let epoch = DateTime::parse_from_rfc3339("1970-01-01T00:00:00Z").unwrap().with_timezone(&Utc);
+        let orbit = tracker.resolve(
+            LatestCharacterActivity { current_activity_hash: 0, date_activity_started: epoch },
+            Some(time(100)), Some(time(95)), Some(time(70)), time(600),
+        ).unwrap();
+        assert_eq!(orbit.current_activity_hash, 0);
+        assert_eq!(orbit.date_activity_started, epoch);
+        assert_eq!(sample(&mut tracker, 123, 70, Some(90), Some(95), Some(70)), orbit);
+        let next = sample(&mut tracker, 123, 120, Some(140), Some(95), Some(70));
+        assert_eq!(next.current_activity_hash, 123);
+        assert_eq!(next.date_activity_started, time(120));
+    }
+
+    #[test]
+    fn newer_status_can_switch_activity_despite_an_earlier_start() {
+        let mut tracker = ActivityTiming::default();
+        sample(&mut tracker, 123, 70, Some(90), None, None);
+        let changed = sample(&mut tracker, 456, 60, Some(100), None, None);
+        assert_eq!(changed.current_activity_hash, 456);
+        assert_eq!(changed.date_activity_started, time(60));
+    }
+
+    #[test]
+    fn absent_optional_timing_does_not_delay_any_status_transition() {
+        let mut tracker = ActivityTiming::default();
+        assert_eq!(sample(&mut tracker, 123, 10, Some(20), None, None).current_activity_hash, 123);
+        assert_eq!(sample(&mut tracker, 123, 30, Some(40), None, None).date_activity_started, time(30));
+        assert_eq!(sample(&mut tracker, 456, 50, Some(60), None, None).current_activity_hash, 456);
+        assert_eq!(sample(&mut tracker, 0, 50, Some(70), None, None).current_activity_hash, 0);
+    }
+
+    #[test]
+    fn orbit_discards_previous_transitory_before_another_activity() {
+        let mut tracker = ActivityTiming::default();
+        sample(&mut tracker, 123, 10, Some(90), Some(90), Some(70));
+        sample(&mut tracker, 0, 10, Some(100), Some(95), Some(70));
+        let changed = sample(&mut tracker, 456, 60, Some(110), Some(95), Some(70));
+        assert_eq!(changed.current_activity_hash, 456);
+        assert_eq!(changed.date_activity_started, time(60));
+    }
+
+    #[test]
     fn future_and_unminted_transitory_are_ignored() {
         for (secondary, start) in [(Some(90), Some(700)), (Some(90), Some(95)), (None, Some(70))] {
             let mut tracker = ActivityTiming::default();
@@ -230,7 +300,9 @@ mod tests {
         let mut tracker = ActivityTiming::default();
         let accepted = sample(&mut tracker, 123, 10, Some(20), Some(20), Some(10));
         assert_eq!(sample(&mut tracker, 456, 700, Some(30), Some(30), None), accepted);
-        assert_eq!(sample(&mut tracker, 456, 5, Some(40), Some(40), None), accepted);
+        // Without a strictly newer status timestamp, keep the legacy guard.
+        assert_eq!(sample(&mut tracker, 456, 5, Some(20), Some(40), None), accepted);
+        assert_eq!(sample(&mut tracker, 456, 5, None, None, None), accepted);
     }
 
     #[test]

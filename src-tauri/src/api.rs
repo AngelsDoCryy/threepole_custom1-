@@ -16,7 +16,7 @@ use self::{
     requests::{make_request, BungieRequest, BungieResponseError},
     responses::{
         ActivityInfo, BungieProfile, CharacterActivityHistory, ProfileCurrentActivities,
-        ProfileInfo,
+        ProfileInfo, ProfileTransitoryTiming,
     },
 };
 use crate::config::profiles::Profile;
@@ -238,9 +238,23 @@ impl Api {
         let res_val = make_request(BungieRequest::GetProfile {
             membership_type: profile.account_platform,
             membership_id: &profile.account_id,
-            // Keep one request and the existing polling cadence. Transitory is
-            // a second timing source, not a separate polling task.
-            components: &[204, 1000],
+            // Keep the original status request independent of optional timing.
+            // Orbit/activity identity must not wait for component 1000.
+            components: &[204],
+        })
+        .await
+        .map_err(|e| ApiError::ResponseError(e))?;
+
+        serde_json::from_value(res_val).map_err(|e| ApiError::ResponseDeserializeError(e))
+    }
+
+    pub async fn get_profile_transitory(
+        profile: &Profile,
+    ) -> Result<ProfileTransitoryTiming, ApiError> {
+        let res_val = make_request(BungieRequest::GetProfile {
+            membership_type: profile.account_platform,
+            membership_id: &profile.account_id,
+            components: &[1000],
         })
         .await
         .map_err(|e| ApiError::ResponseError(e))?;
