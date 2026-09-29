@@ -6,57 +6,76 @@ import type { TauriEvent, Preferences, CurrentActivity, PlayerDataStatus } from 
 import { countActivityClears, determineActivityType, formatMillis, formatTime } from "../core/util";
 import { getPlayerdata, getPreferences } from "../core/ipc";
 
-const widgetElem = document.querySelector<HTMLElement>("#widget")!;
 const loaderElem = document.querySelector<HTMLElement>("#widget-loader")!;
 const errorElem = document.querySelector<HTMLElement>("#widget-error")!;
 const widgetContentElem = document.querySelector<HTMLElement>("#widget-content")!;
 const activityNameElem = document.querySelector<HTMLElement>("#activity-name")!;
-const activityIconElem = document.querySelector<HTMLImageElement>("#activity-icon")!;
 const timerElem = document.querySelector<HTMLElement>("#timer")!;
 const timeElem = document.querySelector<HTMLElement>("#time")!;
 const msElem = document.querySelector<HTMLElement>("#ms")!;
 const counterElem = document.querySelector<HTMLElement>("#counter")!;
-const clearCountContentElem = document.querySelector<HTMLElement>("#clear-count-content")!;
 const dailyElem = document.querySelector<HTMLElement>("#daily")!;
 
 let currentActivity: CurrentActivity;
+let currentActivityHistory: PlayerDataStatus["lastUpdate"]["activityHistory"] = [];
 let lastRaidId;
 let lastActivityInstanceKey: string | null = null;
 let activityNameHideTimer: number | null = null;
 let doneInitialRefresh = false;
 
 let shown = false;
+let desiredShown = false;
+let updatingVisibility = false;
 let prefs: Preferences;
 let timerInterval;
 
 async function init() {
-    appWindow.listen("show", () => {
-        if (shown) {
-            return;
-        }
-
-        appWindow.show();
-        shown = true;
-
-        checkTimerInterval();
+    await appWindow.listen("show", () => {
+        desiredShown = true;
+        void updateVisibility();
     });
 
-    appWindow.listen("hide", () => {
-        if (!shown) {
-            return;
-        }
-
-        appWindow.hide();
-        shown = false;
-
-        checkTimerInterval();
+    await appWindow.listen("hide", () => {
+        desiredShown = false;
+        void updateVisibility();
     });
 
-    applyPreferences(await getPreferences());
-    refresh(await getPlayerdata());
+    let preferencesUpdated = false;
+    let playerdataUpdated = false;
+    let latestPlayerdata: PlayerDataStatus;
+    await appWindow.listen("preferences_update", (p: TauriEvent<Preferences>) => {
+        preferencesUpdated = true;
+        applyPreferences(p.payload);
+    });
+    await appWindow.listen("playerdata_update", (e: TauriEvent<PlayerDataStatus>) => {
+        playerdataUpdated = true;
+        latestPlayerdata = e.payload;
+        if (prefs) refresh(e.payload);
+    });
+    const initialPreferences = await getPreferences();
+    if (!preferencesUpdated) applyPreferences(initialPreferences);
+    if (playerdataUpdated) refresh(latestPlayerdata);
+    const initialPlayerdata = await getPlayerdata();
+    if (!playerdataUpdated) refresh(initialPlayerdata);
+}
 
-    appWindow.listen("preferences_update", (p: TauriEvent<Preferences>) => applyPreferences(p.payload));
-    appWindow.listen("playerdata_update", (e: TauriEvent<PlayerDataStatus>) => refresh(e.payload));
+async function updateVisibility() {
+    if (updatingVisibility) return;
+    updatingVisibility = true;
+    try {
+        while (shown !== desiredShown) {
+            const target = desiredShown;
+            if (target) await appWindow.show();
+            else await appWindow.hide();
+            shown = target;
+            checkTimerInterval();
+        }
+    } catch (error) {
+        // Do not mark a failed show/hide as successful; the next event retries.
+        console.warn("Overlay visibility update failed", error);
+    } finally {
+        updatingVisibility = false;
+    }
 }
 
 function createPopup(popup: Popup) {
@@ -64,7 +83,7 @@ function createPopup(popup: Popup) {
 }
 
 function checkTimerInterval() {
-    if (!prefs || !shown || !determineActivityType(currentActivity?.activityInfo?.activityModes)) {
+    if (!prefs || !prefs.displayTimer || !shown || !determineActivityType(currentActivity?.activityInfo?.activityModes)) {
         clearTimeout(timerInterval);
         timerInterval = null;
         timerElem.classList.add("hidden");
@@ -85,6 +104,8 @@ function refresh(playerDataStatus: PlayerDataStatus) {
         widgetContentElem.classList.add("hidden");
 
         currentActivity = null;
+        currentActivityHistory = [];
+        checkTimerInterval();
         doneInitialRefresh = false;
 
         if (playerDataStatus?.error) {
@@ -103,11 +124,11 @@ function refresh(playerDataStatus: PlayerDataStatus) {
     errorElem.classList.add("hidden");
     widgetContentElem.classList.remove("hidden");
 
-    const previousActivityHash = currentActivity?.activityHash ?? null;
     currentActivity = playerData.currentActivity;
+    currentActivityHistory = playerData.activityHistory;
 
     checkTimerInterval();
-    updateActivityDisplay(playerData.activityHistory, previousActivityHash);
+    updateActivityDisplay(playerData.activityHistory);
 
     let latestRaid = playerData.activityHistory[0];
 
@@ -129,55 +150,28 @@ function refresh(playerDataStatus: PlayerDataStatus) {
     doneInitialRefresh = true;
 }
 
-
-function updateActivityDisplay(activityHistory: PlayerDataStatus["lastUpdate"]["activityHistory"], _previousActivityHash: number | null) {
+function updateActivityDisplay(activityHistory: PlayerDataStatus["lastUpdate"]["activityHistory"]) {
     const activity = currentActivity;
     const activityInfo = activity?.activityInfo;
     const type = determineActivityType(activityInfo?.activityModes);
 
-    // Match the original timer behaviour: do not show activity UI while in Orbit
-    // or another untracked activity.
     if (!activity || !activityInfo || !type) {
         clearTimeout(activityNameHideTimer ?? undefined);
         activityNameHideTimer = null;
         lastActivityInstanceKey = null;
         activityNameElem.classList.add("hidden");
-        activityIconElem.removeAttribute("src");
-        activityIconElem.classList.add("hidden");
         counterElem.classList.add("hidden");
         return;
     }
 
-    // Show the name again for every newly started activity, even when two runs
-    // use the same activity hash.
     const activityInstanceKey = `${activity.activityHash}:${activity.startDate}`;
     if (activityInstanceKey !== lastActivityInstanceKey) {
         lastActivityInstanceKey = activityInstanceKey;
         showActivityName();
     }
 
-    const showClearCount = prefs.displayDailyClears;
-    if (showClearCount) {
+    if (prefs.displayDailyClears) {
         dailyElem.innerText = String(countActivityClears(activityHistory, activity.activityHash));
-        clearCountContentElem.classList.remove("hidden");
-    } else {
-        clearCountContentElem.classList.add("hidden");
-    }
-
-    const isRaidOrDungeon = type === "Raid" || type === "Dungeon";
-    const showIcon = prefs.displayActivityIcon && isRaidOrDungeon && !!activityInfo.typeIcon;
-
-    if (showIcon) {
-        activityIconElem.src = activityInfo.typeIcon!.startsWith("http")
-            ? activityInfo.typeIcon!
-            : `https://www.bungie.net${activityInfo.typeIcon!}`;
-        activityIconElem.classList.remove("hidden");
-    } else {
-        activityIconElem.removeAttribute("src");
-        activityIconElem.classList.add("hidden");
-    }
-
-    if (showClearCount || showIcon) {
         counterElem.classList.remove("hidden");
     } else {
         counterElem.classList.add("hidden");
@@ -224,9 +218,11 @@ function applyPreferences(p: Preferences) {
     timerInterval = null;
 
     checkTimerInterval();
+    updateActivityDisplay(currentActivityHistory);
 }
 
 function timerTick() {
+    if (!currentActivity || !prefs?.displayTimer || !shown) return;
     let millis = Number(new Date()) - Number(new Date(currentActivity.startDate));
     timeElem.innerHTML = formatTime(millis);
     msElem.innerHTML = formatMillis(millis);
