@@ -6,6 +6,21 @@ This project is based on the original Threepole application by des-sh and adds s
 
 ---
 
+## Project knowledge base
+
+Durable project context for ChatGPT, Work and Codex lives in `docs/`:
+
+- [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) — project goals, safety constraints, workflow and the **Threepole Status** convention
+- [`docs/CUSTOM_FEATURES.md`](docs/CUSTOM_FEATURES.md) — custom feature behavior and open feature changes
+- [`docs/DESTINY_API.md`](docs/DESTINY_API.md) — Bungie API / manifest architecture, polling and fallback rules
+- [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) — responsiveness goals, regressions and validation plan
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — current priorities, open validation and future work
+- [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) — detailed handoff from prior ChatGPT and Work development sessions
+
+GitHub is the source of truth for code and durable project documentation. Substantial implementation/debugging work should use Codex against the repository; lightweight Threepole/Destiny API questions can remain in normal chat while referring back to the same project context.
+
+---
+
 ## Original Threepole features
 
 The following functionality comes from the original Threepole project:
