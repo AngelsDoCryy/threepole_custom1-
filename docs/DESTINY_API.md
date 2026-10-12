@@ -1,126 +1,68 @@
 # Threepole Custom — Destiny / Bungie API
 
-This file documents the API- and manifest-only data model used by the custom Threepole work.
+Implemented baseline: 1.1.4; audited 2026-10-11. Source: `src-tauri/src/api.rs`, `api/requests.rs`, `api/responses.rs`, `pollers/playerdata.rs` and `pollers/activity_timing.rs`.
 
-## Safety boundary
+## Required safety boundary
 
-Custom functionality must use Bungie web/API/manifest data only.
+Activity data must come from Bungie web/API/manifest sources only. No Destiny process access/inspection, memory read/write, DLL/code injection, game/DirectX/RTSS-style hooks, input hooks/automation or game-file modification. Unsupported features must stay unsupported rather than bypass this boundary.
 
-Do not introduce:
+The inherited overlay process-name query is a documented unresolved conflict, not an exception. Close-to-tray is not proof of compliance with no-work-while-closed. [PROJECT_CONTEXT](PROJECT_CONTEXT.md) owns those findings and the required lifecycle boundary.
 
-- Destiny 2 memory access
-- process inspection for gameplay state
-- DLL/code injection
-- hooks into `destiny2.exe`
-- DirectX/game hooks
-- input hooks
-- gameplay automation
-- Destiny game-file modification
+## Current endpoints and request budget
 
-If a desired feature cannot be implemented inside this boundary, treat it as unsupported for this project rather than bypassing the boundary.
+The API root is `https://www.bungie.net/Platform`. The app sends `X-API-Key` compiled from `BUNGIE_API_KEY`; profile selection is not an OAuth login. Private data is not bypassed.
 
-## Current activity identity / orbit state
+| Endpoint/component | Purpose | Current call pattern and cache |
+| --- | --- | --- |
+| SearchDestinyPlayerByBungieName | Find profile by name/tag | User-triggered POST, no polling |
+| GetProfile, 100 | Profile information and character IDs | On demand; session cache per profile |
+| GetProfile, 204 | Observed activity identity and orbit | Initial request, then two-second pause between completed updates |
+| GetProfile, 1000 | Optional current-activity start | First request after initialization, then ten-second pause; latest optional snapshot in memory |
+| GetActivityHistory | Today's tracked runs/clears | Initial load, then ten-second pause per full round; per character, `mode=7&count=25&page=...` |
+| GetDestinyEntityDefinition / DestinyActivityDefinition | Name, modes and metadata | On demand by hash; session cache plus persistent learned raid/dungeon modes |
 
-### CharacterActivities — component 204
+Pauses are in addition to request and processing time. Approximate steady-state maxima are 30 requests/minute for 204 and six for 1000. History costs about six times the number of pages fetched across all characters per minute when response time is negligible; three characters at one page each already mean about 18 history requests/minute. Startup, retry, profile search and uncached metadata are additional. “Six extra requests” describes only the optional 1000 path, not the whole application or every earlier polling refactor. Do not raise cadence without measured need and a quantified budget.
 
-Current 1.1.4 architecture uses CharacterActivities independently for activity identity and observed orbit state.
+## 204 identity, character selection and freshness
 
-Design rules:
+204 is requested independently of 1000. The implementation chooses the character observation with the greatest `dateActivityStarted`; it does not currently use the component's mode fields or an independent online-character signal. Multiple-character selection, equal start times and epoch orbit values therefore need integration/live coverage beyond single-observation timing tests.
 
-- poll on the existing current-activity cadence with a two-second pause
-- keep this request independent from optional timing data
-- do not let a slow optional request block activity identity/orbit updates
-- accept newer status snapshots based on response freshness
-- do not reject a newer response merely because `dateActivityStarted` moved backwards
+`ActivityTiming::resolve` compares primary `responseMintedTimestamp` against its accepted watermark. A strictly newer status can report a different activity or orbit even when the activity-start timestamp moves backwards. Epoch start is accepted for hash 0. Older primary snapshots are rejected; missing/invalid freshness metadata preserves the conservative legacy guard. Hash 0 is the app's observed no-activity/orbit state, not an independent proof of the user's exact screen.
 
-`dateActivityStarted` is an activity-start value, not the authoritative generation timestamp for deciding whether the full status snapshot is newer.
+## Optional 1000 timing
 
-A fresh orbit response may legitimately have an older or epoch-style activity-start value.
+`secondaryComponentsMintedTimestamp` is tracked separately. Only a newer secondary snapshot replaces the optional start; missing/private/malformed/future/invalid optional values are tolerated. Network failures leave the latest stored optional snapshot available; freshness guards still apply when resolving a subsequent 204 response.
 
-## Optional timing source
+A Transitory start is considered only when it is valid, not after its secondary mint time, not earlier than the character's start, and not later than the primary mint time. It can advance a same-activity timer without waiting for 204's start value to catch up. An accepted timer does not roll back merely because optional data disappears. Confirmed orbit clears the accepted optional start while retaining the freshness watermark.
 
-### Transitory — component 1000
+Transitory has no activity hash and comes from a non-authoritative system separate from PGCR. Even a fresh primary timestamp cannot prove both sources describe the same run. It must never be used alone to identify an activity, infer orbit or terminate a run.
 
-The current design fetches Transitory independently with a ten-second pause/cadence.
+Official schema references: [CharacterActivities](https://bungie-net.github.io/multi/schema_Destiny-Entities-Characters-DestinyCharacterActivitiesComponent.html), [primary/secondary freshness](https://bungie-net.github.io/multi/schema_Destiny-Responses-DestinyProfileResponse.html), [Transitory current activity](https://bungie-net.github.io/multi/schema_Destiny-Components-Profiles-DestinyProfileTransitoryCurrentActivity.html). These support source/field semantics, not a promise of a fixed Bungie refresh delay.
 
-Purpose:
+## History and initialization
 
-- provide optional timing information
-- never act as the sole proof of activity identity or orbit
+A history round scans characters and pages until empty data or entries older than the 17:00 UTC cutoff. It filters by activity start time, supplements incomplete modes from the classification cache, retains Raid/Dungeon/Strike/Lost Sector records, and sorts by period with instance ID as a stable tie-breaker. Full-record comparison accepts late arrivals, corrected completion/duration and reset removals.
 
-Important limitation:
+After initialization, current, history and Transitory futures are joined in one cancellable task; history writes only its own field and cannot overwrite newer current activity. Profile reset aborts the task and recreates timing state. **However, initial publication still waits for successful current activity and history together.** A history error causes another initialization attempt after five seconds; steady-state polling and optional timing have not started yet. This is a confirmed local startup bottleneck, not a Bungie freshness explanation.
 
-- Transitory does not carry an activity hash, so it cannot independently identify the current activity
+The frontend counter and notification delivery are separate: history corrections can change counts without generating notifications. See [CUSTOM_FEATURES](CUSTOM_FEATURES.md) for the confirmed same-ID correction and late-older notification gaps. A clear must never force orbit or stop a subsequent run.
 
-Fallback behavior:
+## Metadata caches and confirmed limitations
 
-- missing data
-- private data
-- malformed data
-- future schema differences
-- older timing data
+- Full `ActivityInfo` values are cached in memory by hash. An individual manifest definition supplies name/modes/image; this is not a downloaded manifest database.
+- `activity-mode-cache.json` persists only learned raid/dungeon modes. It stores classification, never live timing. Read/parse failures fall back to an empty cache; write failures are ignored. Writes are synchronous, and no manifest-version/TTL invalidation or size bound is implemented.
+- Raid/dungeon `activityTypeHash` supplements missing/generic mode data. History classification makes no per-item manifest request. With incomplete modes and an unknown hash it drops the record until another path learns that definition. The details window can fetch metadata for retained historical records, so the whole UI is not “manifest-request-free.”
 
-must fall back safely without preventing CharacterActivities from updating the overlay state.
+**Confirmed manifest failure path:** For a nonzero activity hash, `update_current` waits for metadata under the shared activity-source mutex. Only empty names and ResponseMissing become absent metadata; other network/API/deserialization errors return before publishing the new activity. Hash 0 itself skips this lookup, but a preceding slow lookup delays the next status request. A definition with an empty name is still cached as a successful response, so subsequent refresh attempts reuse it indefinitely within the session. The existing helper test checks whether a retry is requested, not whether the source cache actually refetches.
 
-Confirmed orbit should clear any previously accepted Transitory start so timing cannot leak into the next run.
+**Required future behavior:** accepted identity/orbit/timing must not wait for metadata; metadata must recover with bounded/deduplicated work and no stale completion overwriting a newer activity/profile. Use already available classification where safe; do not label an unknown activity as a raid/dungeon. This is pending work, not a description of 1.1.4.
 
-## Activity history / clear notifications
+## HTTP behavior and remaining risks
 
-History processing is a separate state path from live current-activity tracking.
+Implemented: one session-wide reqwest client, connection reuse, 15-second request timeout, custom in-memory cookie name/value replay without reqwest's cookie-store dependency stack. Affinity itself adds no requests; it does not establish a cause or guaranteed cure for backend inconsistency. The simplified cookie map is not a full expiry/domain/path-aware cookie jar.
 
-Required invariants:
+Bungie errors expose `ThrottleSeconds`, but callers currently keep their fixed retry pauses instead of honoring that duration. Error state is shared by current/history paths, so a successful status update can clear a history error. After successful initial load, the overlay can continue showing last good data without making subsequent errors obvious. These are follow-up robustness risks, not newly measured live regressions.
 
-- a clear result must not force orbit
-- a clear result must not stop a later run
-- a notification can legitimately arrive before the live current-activity response catches up
+## Rules for endpoint changes
 
-Ordering alone is therefore not proof of a bug. State corruption between the paths would be a bug.
-
-## Manifest usage
-
-Manifest data is used for activity metadata/classification where normal mode information is incomplete.
-
-Rules:
-
-- cache stable activity-hash -> mode/classification data locally
-- avoid repeated manifest requests in hot paths
-- unknown/future activities must fail gracefully
-- manifest lookup failure must not break the timer or base activity tracking
-
-## HTTP handling
-
-Current optimization direction:
-
-- use one shared HTTP client for the app session
-- preserve Bungie affinity/cookie behavior between requests
-- do not add extra requests solely for affinity handling
-
-Bungie controls when API data becomes fresh. Local code can prevent avoidable blocking or stale-state rejection, but it cannot guarantee immediate server-side updates.
-
-## Request-volume principle
-
-Keep request volume conservative and measurable.
-
-Do not increase polling frequency as the first response to a timing complaint. First identify which path is delayed:
-
-- CharacterActivities response freshness
-- Transitory timing
-- activity history
-- manifest/classification lookup
-- local state handling
-- UI rendering
-
-Only change cadence when there is evidence that cadence itself is the limiting factor and the API impact is understood.
-
-## Future API documentation
-
-When adding a new Bungie endpoint/component or changing how an existing one is used, document:
-
-1. endpoint/component
-2. purpose
-3. polling/call frequency
-4. cache behavior
-5. fallback behavior
-6. failure/privacy handling
-7. effect on request volume
-8. why it remains inside the API-/web-only safety boundary
+Document purpose, call frequency, caching, privacy/failure fallback, total request impact and why the endpoint stays within the safety boundary. Diagnose API freshness, request duration, metadata/locks, state acceptance and UI separately. Keep status/optional/history paths independently cancellable within app lifetime; no service or work after closure.

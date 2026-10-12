@@ -1,6 +1,6 @@
 # Threepole Custom — Project Context
 
-This file is the durable high-level context for the custom Threepole project.
+This file owns the durable user decisions and workflow. Last alignment: 2026-10-11; implementation remains 1.1.4. Implemented behavior, unresolved conflicts and required future behavior must not be conflated.
 
 ## Project identity
 
@@ -38,40 +38,31 @@ The custom project must not add:
 
 When Threepole exits, custom polling/tasks must stop. Bungie API request volume should remain conservative and measurable.
 
+### Current implementation conflicts — not approved exceptions
+
+`src-tauri/src/pollers/overlay.rs::get_hwnd_exec` uses `OpenProcess(PROCESS_QUERY_INFORMATION)` and `K32GetModuleFileNameExW` to compare the foreground executable name with `destiny2.exe`. This predates the current PR's fixes; the PR closes the acquired handle. It is not an activity-memory reader, injection or input hook, but it **is direct process access**, so the current implementation cannot be described as fully meeting the boundary above. Review and replace the mechanism within the boundary; do not weaken the requirement by changing its wording.
+
+`src/window/window.ts` closes the UI window, while `src-tauri/src/main.rs` prevents ordinary application exit and exposes tray **Exit**. Thus window close currently leaves polling active in the tray. Actual Exit ends the app; there is no separate polling service in the inspected source. Runtime verification that requests and app-owned processes cease after Exit is still pending. Disabling the overlay also does not disable player-data polling.
+
+The user's requirement is no work while Threepole is closed. Window-close-to-tray must not be silently accepted as satisfying that requirement. ROADMAP requires explicit product semantics: application close should stop app work; any retained tray operation must be visibly an intentional running state, not an invisible substitute for closing. The existing behavior is documented, not authorized as an exception.
+
+### Icon decision
+
+As confirmed on 2026-10-11, **all Threepole Custom icons must use Eager Edge**, including app/taskbar/tray/installer, notifications and the overlay-clear icon. Older requests to restore the original Threepole icon are superseded. The calendar SVG still present beside the counter is an implementation gap, not the desired design. See CUSTOM_FEATURES for asset mapping.
+
 ## Working model
 
 ### GitHub
 
 GitHub is the source of truth for code, branches, pull requests, tests, releases and durable project documentation.
 
-### Codex
+### Codex and the user
 
-Use Codex as the primary workspace for substantial engineering work:
+Codex is now the central workspace for development, debugging, tests, performance review, API questions and documentation. The user gives ordinary-language tasks and is not expected to program or maintain the toolchain manually. Codex prepares focused changes, validates them, explains risks/request-volume changes and supplies Windows MSI builds tied to a commit for the user's practical checks. Prior ChatGPT/Work decisions are retained in the existing knowledge base; neither application has to remain running as a project dependency.
 
-- implementation
-- debugging
-- refactoring
-- test creation
-- performance work
-- repository-wide analysis
-- code review
+Start sessions inside the correct repository checkout and follow root AGENTS.md. It explicitly routes future sessions to the existing knowledge files. Those linked documents still need to be read; automatic instruction discovery does not automatically include all of `docs/`. Keep AGENTS concise, preserve its location and inspect any applicable override before work. No extra global configuration or duplicate instruction tree is required. [Official instruction-discovery documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 
-Codex should read the knowledge-base files before making project-wide changes.
-
-### Normal ChatGPT chat
-
-Use normal chat for lightweight questions and fast analysis, for example:
-
-- Bungie API behavior
-- Threepole architecture questions
-- safety checks
-- interpreting logs/test results
-- deciding what to test next
-- explaining code or behavior
-
-### Work
-
-Use Work when a larger task benefits from combining multiple sources, documents, repository context or longer research/analysis.
+Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The 2026-10-11 cleanup is documentation-only. Environment inspection is allowed, installation of additional programs/background services is not part of that assignment.
 
 ## Knowledge-base map
 

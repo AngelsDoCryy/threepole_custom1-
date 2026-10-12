@@ -8,7 +8,7 @@ This project is based on the original Threepole application by des-sh and adds s
 
 ## Project knowledge base
 
-Durable project context for ChatGPT, Work and Codex lives in `docs/`:
+Start Codex sessions with [`AGENTS.md`](AGENTS.md). Durable context from ChatGPT, Work and Codex lives in the existing `docs/` files:
 
 - [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) — project goals, safety constraints, workflow and the **Threepole Status** convention
 - [`docs/CUSTOM_FEATURES.md`](docs/CUSTOM_FEATURES.md) — custom feature behavior and open feature changes
@@ -17,7 +17,7 @@ Durable project context for ChatGPT, Work and Codex lives in `docs/`:
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — current priorities, open validation and future work
 - [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) — detailed handoff from prior ChatGPT and Work development sessions
 
-GitHub is the source of truth for code and durable project documentation. Substantial implementation/debugging work should use Codex against the repository; lightweight Threepole/Destiny API questions can remain in normal chat while referring back to the same project context.
+Documentation aligned 2026-10-11 against **1.1.4**; this cleanup implements no fixes. CODEX_HANDOFF records the audited commit and successful build #19. Codex handles natural-language development orders, tests and Windows MSI delivery; GitHub holds durable history. See [`BUILD-GITHUB-DE.md`](BUILD-GITHUB-DE.md) for the minimal local environment and existing CI build path.
 
 ---
 
@@ -35,12 +35,6 @@ The following functionality comes from the original Threepole project:
 - Background tray operation
 - Current activity detection
 - Activity history display
-
-Original project:
-
-https://github.com/des-sh/threepole
-
----
 
 ## Custom features
 
@@ -60,54 +54,27 @@ The following features were added in this custom build:
 
 ### Per-activity daily clear counter
 
-Instead of combining all activity clears into one counter, clears are tracked separately for each activity.
-
-Example:
-
-- Vault of Glass: 3 clears
-- Spire of the Watcher: 2 clears
-- Sundered Doctrine: 5 clears
-
-When switching activities, the displayed clear count automatically changes to the count for that activity.
-
-Daily reset behavior is preserved. The original Threepole calendar icon is used next to the clear counter.
+The overlay counts completed history for the current activity hash; returning to that hash restores its count. Variants with different hashes remain separate. History is filtered at 17:00 UTC by activity start time; the details window retains an aggregate total. The counter's calendar SVG still needs replacement with Eager Edge.
 
 ### Additional Raid / Dungeon detection
 
-Improved activity detection for Raid and Dungeon activities that may not expose the normal activity mode information.
-
-A small local activity-mode cache is used so history processing does not need extra manifest requests. New Raid / Dungeon activities are still classified dynamically from Bungie manifest activity data when they are encountered.
+Manifest activity types and a persistent learned-mode cache supplement missing Raid/Dungeon modes without a manifest request for every history record. Unknown historical hashes with incomplete modes can still be omitted. Details-window metadata requests remain possible; manifest publication/recovery defects are recorded in DESTINY_API.
 
 ### Current activity timing (1.1.4)
 
-- Fetches CharacterActivities (204) on its own, like the original status request, with the existing two-second pause between requests.
-- Fetches optional Transitory (1000) independently with a ten-second pause, adding at most six requests per minute in steady state. All pollers share the existing HTTP client and are cancelled together on profile change/Exit. No background service or runtime dependency is added.
-- Slow or failed Transitory responses cannot hold up the activity status request. The latest available optional snapshot is considered when a status response arrives.
-- Compares Bungie's primary and secondary generation timestamps separately to reject older snapshots.
-- Can use a newer Transitory start time when the character snapshot was generated at or after that start. Transitory has no activity hash; this freshness check reduces mismatched snapshots, but cannot guarantee that both components describe the same run.
-- Missing, private, malformed, future-dated, or older Transitory data falls back to the existing character timing. An accepted timer does not jump back when optional data disappears.
-- Orbit and activity-name changes use character observations, independently of a timer already advanced by Transitory. A newer primary snapshot can change status even when the activity start time moves backwards, including an epoch timestamp in orbit.
-- Confirmed orbit clears the old optional start time. Clear notifications come from activity history and may arrive before live status; they never force orbit or stop a later run.
-- Bungie controls when fresh data becomes available. This cannot guarantee instant switches or a fixed delay; real in-game latency still needs to be measured.
-- Activity-name, timer, clears, and notification preferences remain independent. The local activity-mode cache contains classification data, not live timer state.
+- Independent 204 status with a two-second pause; optional 1000 timing with a ten-second pause, at most six optional requests/minute in steady state.
+- Separate freshness guards; newer primary status can accept backward/epoch orbit starts. Optional data cannot establish identity/orbit and must not roll an accepted timer back when missing.
+- Confirmed orbit clears optional timing. History notifications never force orbit or stop a later run; display preferences remain independent.
+
+Initialization still waits for current activity and history. Manifest failures/cached empty names can prevent publication/recovery; corrected and late older clears can miss notifications. The specialist files document these defects, request budgets and acceptance tests. Bungie data freshness and real switching latency remain subject to live validation.
 
 ### Bungie API affinity handling
 
-- Reuses one HTTP client for the full app session
-- Preserves Bungie affinity cookies between API requests
-- Keeps the existing Current Activity polling interval unchanged
-- The affinity handling itself adds no requests; the separate optional timing cadence is described above
-
-This is intended to reduce cases where different Bungie backend servers return temporarily inconsistent current-activity state.
+One shared HTTP client reuses connections and replays cookies without adding requests. This is intended to improve affinity, but neither proves a backend-routing cause nor guarantees fresher Bungie data. DESTINY_API records the simplified cookie handling and timeout limits.
 
 ### Custom application icon
 
-The application uses a custom Eager Edge icon for:
-
-- application icon
-- taskbar icon
-- tray icon
-- Windows installer icon
+**Eager Edge is required for all Threepole Custom icons**, including overlay-clear. Older original-icon instructions are superseded. App/taskbar/tray/installer and popup assets already use Eager Edge; the counter's calendar SVG remains pending. CUSTOM_FEATURES maps the assets and remaining inventory work. No icons changed in this documentation cleanup.
 
 ### Custom updater behavior
 
@@ -117,19 +84,9 @@ The original Threepole automatic updater is disabled in this build to prevent of
 
 ## Safety / Destiny interaction
 
-This custom version does not add invasive Destiny 2 interaction.
+The required design is API-/web-/manifest-only, with no direct Destiny process access, hooks or activity after application closure. These requirements have no implicit legacy exceptions.
 
-The custom functionality does not use:
-
-- Destiny 2 memory reading
-- Destiny 2 memory writing
-- DLL injection
-- code injection
-- gameplay automation
-- input automation
-- modification of Destiny 2 game files
-
-Activity information is obtained through the existing Threepole logic and Bungie API / manifest data.
+Activity data comes from Bungie; no gameplay-memory reader, injection, input/gameplay automation or game-file modification was found. **Unresolved conflicts:** inherited overlay visibility opens a process to identify `destiny2.exe`, and window close leaves tray/polling active until Exit. No separate polling service was found. [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) records the strict requirements; safety/lifecycle review and Windows shutdown validation remain open.
 
 ---
 

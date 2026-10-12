@@ -1,102 +1,67 @@
 # Threepole Custom — Features
 
-This file tracks custom behavior separately from original Threepole functionality.
+Verified implementation: 1.1.4, audited on 2026-10-11. This file distinguishes shipped behavior from requirements and pending changes. Safety and lifecycle requirements are owned by [PROJECT_CONTEXT](PROJECT_CONTEXT.md); implementation work is ordered in [ROADMAP](ROADMAP.md).
 
-## Activity name display
+## Activity name and independent settings — implemented
 
-Target behavior:
+The overlay displays the name of a recognized tracked activity (Raid, Dungeon, Strike or Lost Sector). It uses an instance key consisting of activity hash and selected start time, so a recognized new run of the same activity shows the name again.
 
-- Show the current activity name above the timer.
-- Update automatically when the activity changes.
-- Allow the feature to be enabled or disabled independently.
-- Support optional auto-hide after a configurable delay.
-- Auto-hide itself must be independently controllable.
+Name display and auto-hide have separate controls. The default delay is ten seconds; the UI offers 0–3600 seconds. This range is a UI constraint, not comprehensive backend validation: Rust stores a `u32` and does not enforce the 3600-second maximum. Input validation and recovery remain polish work.
 
-The initial preferred hide delay was 10 seconds, but the delay must remain configurable.
+Separate preferences exist for overlay enablement, timer, milliseconds, name, auto-hide, clear count and clear notifications. UI controls can be disabled when their parent feature is off (for example milliseconds without a timer); their stored preferences remain distinct. Overlay defaults to off; the other display options default to on. Old preference files receive defaults through Serde.
 
-## Per-activity daily clear counter
+The former `displayActivityIcon` preference and activity-type icon request were removed. Optional class/activity metadata is a deferred idea, not a current setting or permission to override the Eager Edge requirement.
 
-Target behavior:
+## Timer — implemented, performance not yet benchmarked
 
-- Track daily clears separately for each activity.
-- Switching activities changes the displayed counter to the selected activity.
-- Returning to an activity restores that activity's current daily count.
-- Preserve normal daily reset behavior.
-- Use the original Threepole calendar/clear icon beside the counter.
+The frontend derives elapsed time from its local clock minus the accepted backend start time. 204 supplies activity identity and fallback timing; 1000 can advance the start conservatively. See [DESTINY_API](DESTINY_API.md) for association limits.
 
-Example behavior:
+The overlay timer interval stops when hidden, disabled or outside recognized activity. It updates at about 30 Hz with the milliseconds option, otherwise 2 Hz; the current formatter displays two fractional digits. The separate details window still runs a 30 Hz interval independently of overlay preferences. No additional Bungie requests are caused by these presentation settings.
 
-- Vault of Glass: 3
-- Spire of the Watcher: 2
-- Sundered Doctrine: 5
+## Per-activity daily clears — implemented with limits
 
-## Raid / Dungeon classification
+The overlay counts completed history records with exactly the current activity hash. Returning to that hash restores its count from the loaded history. Different difficulty/variant hashes are not grouped. The details window retains an aggregate total for all tracked activities.
 
-Target behavior:
+Counts are reconstructed from Bungie history rather than stored as a separate persistent counter. The cutoff is 17:00 UTC, applied to activity **start** (`period`), not completion time. Completion requires both the API completed value and successful completion reason. History replacement accepts late older records, corrected results and reset removals.
 
-- Support activities that do not expose normal activity-mode data cleanly.
-- Use Bungie manifest data when needed.
-- Cache activity-hash -> classification data locally.
-- Do not perform repeated manifest work for every history entry.
-- Unknown or future activities should degrade gracefully.
+Incomplete history modes are supplemented from the known classification cache; unknown hashes can still be omitted. Day-boundary runs, multiple characters, variant hashes and cache-empty startup need live validation; see DESTINY_API and PERFORMANCE.
 
-## Independent settings
+## Raid / Dungeon classification — implemented with limits
 
-Custom features should not unnecessarily depend on each other.
+Activity definitions provide modes and a fallback via raid/dungeon `activityTypeHash`. The persistent activity-mode cache remembers learned raid/dungeon classifications. It is separate from live timing and is not a complete local manifest database.
 
-Keep separate controls for:
+History classification does not fetch a manifest definition for each record. An unseen hash with incomplete modes is omitted until its classification is learned elsewhere. The details UI can request metadata for retained historical activities. Manifest-error independence and recovery from cached empty names are **requirements not fully met**, documented in DESTINY_API.
 
-- activity-name visibility
-- activity-name auto-hide
-- clear counter
-- clear notifications
-- timer visibility
-- timer milliseconds
-- activity icon where applicable
+## Icons — current requirement and actual assets
 
-## Activity / clear icon behavior
+**Requirement, confirmed 2026-10-11:** Eager Edge for all Threepole Custom icons, including app, taskbar, tray, installer, startup/clear notifications and the overlay-clear icon. Earlier requests to restore the original app icon or preserve the calendar as the desired clear icon are superseded.
 
-The clear counter should retain the original Threepole calendar/clear icon.
+| Surface | Current 1.1.4 source | Status |
+| --- | --- | --- |
+| App/taskbar/installer and tray | `src-tauri/icons/icon.ico`, selected in `tauri.conf.json` | Eager Edge asset; Windows installation/display recheck remains |
+| Startup and clear popups | `public/glyph.png`, same repository blob as `assets/eager-edge-app-icon.png` | Eager Edge implemented |
+| Overlay clear counter | Inline calendar SVG in `src/overlay/overlay.html` | **Pending replacement with Eager Edge** |
 
-A Raid/Dungeon activity icon may be shown as an optional UI feature if classification data is available. Failure to resolve an activity icon must not break activity tracking or clear counting.
+This documentation cleanup changes no image or HTML asset. Generic functional/platform symbols still exist in the UI; a future icon pass must inventory them explicitly against the user's all-icons requirement rather than claim that every visible symbol has already been converted.
 
-## Application icon
+## Clear notifications — implemented independence, confirmed gaps
 
-Current 1.1.4-era code/documentation still includes the custom Eager Edge application/taskbar/tray/installer icon.
+Notifications are optional overlay popups, queued while the overlay is hidden. A clear may arrive before live orbit detection. Neither a clear nor a notification forces orbit or stops an ongoing/new run. Startup suppresses retrospective clear notifications.
 
-Latest requested direction:
+Current `src/overlay/overlay.ts::refresh` examines only `activityHistory[0]` and remembers its instance ID even when incomplete. Consequently:
 
-- restore the standard Threepole application/taskbar/tray/installer icon
-- keep the original Threepole calendar/clear icon for clears
+- An initially incomplete record corrected to completed with the same ID gets **no notification**.
+- A late older completed record behind the newest entry gets **no notification**.
+- The backend/history count can update correctly while the notification is missed.
 
-Treat the application-icon revert as open until code/build verification confirms it.
+The 2026-10-11 takeover reproduced both cases in an isolated in-memory execution of the production refresh function with UI stubs. That is code-level evidence, not an installed-app/live test. Existing two clear/orbit regressions do not cover these cases. ROADMAP proposes bounded per-instance notification tracking while preserving initial-history suppression, settings independence, profile resets and timer independence.
 
-## Notifications
+## Installation and lifecycle
 
-Clear notifications remain optional and should stay logically separate from live activity tracking.
+Custom app ID `sh.des.threepole.custom`, config directory `threepole-custom` and named pipe `threepole-custom-open` isolate the custom app. The automatic updater is disabled so official releases cannot overwrite it.
 
-A notification arriving before the live overlay updates is not by itself a bug. History/notification data must never force orbit or stop a later active run.
+**Current behavior:** UI close leaves the tray app and player-data polling running; disabling overlay closes its window/poller but not the player-data task. Tray Exit ends the application. **Required behavior:** no work when Threepole is closed, no independent background service; the close-to-tray ambiguity and process-name lookup are unresolved safety work, not approved exceptions. See PROJECT_CONTEXT.
 
-## Timer milliseconds
+## Deferred polish
 
-Timer milliseconds are an optional presentation feature.
-
-Requirement:
-
-- enabling milliseconds should not introduce material performance cost or change activity/timer state logic
-
-## Updater
-
-The original automatic updater is disabled in the custom build so an upstream Threepole release cannot overwrite the custom installation.
-
-## Deferred / future ideas
-
-Possible future work should remain separate from core stability work. Examples previously discussed include additional UI presentation such as class icons.
-
-Do not prioritize cosmetic additions above:
-
-1. orbit/activity responsiveness
-2. repeated-run reliability
-3. API-only safety
-4. low overhead
-5. stable clear/timer state
+After safety, manifest/startup/notification correctness and responsiveness validation: improve hide-delay validation/UX and name presentation, then consider optional class metadata. Cosmetic work must not introduce hot-path network requests, couple independent settings or reintroduce removed activity-icon requests.
