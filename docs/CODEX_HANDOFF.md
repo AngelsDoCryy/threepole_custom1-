@@ -5,9 +5,17 @@ Aligned 2026-10-14. Entry point for retained ChatGPT/Work decisions, Codex takeo
 ## Verified baseline
 
 - Repository: `AngelsDoCryy/threepole_custom1-`; upstream: `des-sh/threepole` 1.1.2; custom: **1.1.4**.
-- Branch: `optimize-speed-cache-icon`; [draft PR #1](https://github.com/AngelsDoCryy/threepole_custom1-/pull/1) targets `main`; no merge without explicit instruction.
+- Branch: `threepole-custom-dev`; [draft PR #2](https://github.com/AngelsDoCryy/threepole_custom1-/pull/2) targets `main`; no merge without explicit instruction.
 - Before package 1, last implementation: `8285cc406f496e02911d469eb74c4372147ad867`; initial audited head: `fe083270b8a733239507f06bafde4048a879bfd7`. The eight intervening commits only changed documentation. The prior ten-file cleanup was committed/pushed as `bb3f21f1877cb16f703888b9afb45493d28c4b8d`; subsequent permanent rules were saved as noted below.
 - Permanent goals were saved in `6dd79726c1ddaf202dbe408b91b58672216a422a`; window/tray clarification in `628d2ae3733c63f50137549a558b133ab72ef959`. The user subsequently authorized package 1 only: process-free overlay recognition, focused tests, documentation, commit/push and a CI MSI testbuild. This branch now contains that implementation; inspect its Git commit and corresponding workflow. No version/CI change, window/tray/exit redesign, other performance package, merge or removal of Draft status accompanies it.
+
+## Development branch migration — 2026-10-14
+
+The permanent development branch is now `threepole-custom-dev`, renamed from `optimize-speed-cache-icon` through GitHub's rename operation. The entire history through `a2e67edb094dcd5a841cf48bed17be063489bc4b` is retained. GitHub automatically closed unmerged [PR #1](https://github.com/AngelsDoCryy/threepole_custom1-/pull/1) when its head branch was renamed; [Draft PR #2](https://github.com/AngelsDoCryy/threepole_custom1-/pull/2) continues it against unchanged `main`. Both PR descriptions retain the connection. Do not recreate the old development branch.
+
+The local branch tracks `origin/threepole-custom-dev`; the repository URL and GitHub default branch `main` remain unchanged. AGENTS directs future sessions to the permanent development checkout. Only the Windows workflow's push-branch filter changes in this migration; build steps, application code and version remain unchanged. Verify the migration commit's automatically triggered Windows run before declaring Actions healthy.
+
+The last implementation before the rename passed [Windows build #24](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/38478039050) on `a2e67ed`: 48 Rust tests, five frontend tests and MSI packaging. This is the retained pre-migration validation baseline, not a new live Destiny test.
 
 ## Knowledge ownership
 
@@ -41,7 +49,7 @@ Tauri 1/Rust/Tokio owns requests, configuration, tray and windows; Svelte 3/Type
 
 The pre-package baseline [Windows build #22](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/38475047295) succeeded on `628d2ae3733c63f50137549a558b133ab72ef959`. Package 1 adds eleven Rust cases (48 total with the existing 37); consult the workflow associated with the package commit for its compilation, five frontend tests, Rust tests and MSI result. The local machine has no Rust toolchain. A live window-only metadata sample established title/class and 125% DPI geometry, not installed-MSI behavior or a performance benchmark. PERFORMANCE owns details and remaining live tests.
 
-[Windows build #19, 2026-09-29](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/36518496000) passed on the audited head: **37 Rust tests, five overlay tests and MSI packaging**. [MSI artifact](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/36518496000/artifacts/11011229394) was available during takeover; links can expire. PR text references older build #11. Always tie delivered builds to their commit.
+[Windows build #19, 2026-09-29](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/36518496000) passed on the audited head: **37 Rust tests, five overlay tests and MSI packaging**. [MSI artifact](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/36518496000/artifacts/11011229394) was available during takeover; links can expire. Historical PR #1 text references older build #11. Always tie delivered builds to their commit.
 
 [Windows build #20, 2026-10-12](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/38243304601) subsequently succeeded on `bb3f21f1877cb16f703888b9afb45493d28c4b8d`: 37 Rust tests, five overlay tests and `Threepole Custom_1.1.4_x64_en-US.msi` packaging. Its [MSI artifact](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/38243304601/artifacts/11744142438) is build evidence, not a Windows/Destiny live test. This documentation update adds no runtime validation; its push can trigger the unchanged workflow, and any resulting run must be checked separately.
 

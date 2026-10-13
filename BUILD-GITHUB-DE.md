@@ -1,6 +1,6 @@
 # Threepole Custom – Windows-Build und minimale lokale Umgebung
 
-Stand der Bestandsaufnahme: 11.10.2026. Das vorhandene Repository ist `AngelsDoCryy/threepole_custom1-`, Entwicklungsbranch `optimize-speed-cache-icon`, Version 1.1.4. Kein neues Repository oder zusätzliches Dokumentationssystem ist erforderlich.
+Stand der Bestandsaufnahme: 11.10.2026. Das vorhandene Repository ist `AngelsDoCryy/threepole_custom1-`, Entwicklungsbranch `threepole-custom-dev`, Version 1.1.4. Kein neues Repository oder zusätzliches Dokumentationssystem ist erforderlich.
 
 ## Minimaler Weg: Codex lokal, Windows-Build über GitHub Actions
 

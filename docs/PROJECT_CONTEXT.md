@@ -7,8 +7,8 @@ This file owns the durable user decisions and workflow. Last alignment: 2026-10-
 - Repository: `AngelsDoCryy/threepole_custom1-`
 - Upstream project and permanent technical reference: [des-sh/threepole](https://github.com/des-sh/threepole)
 - Custom project base: original Threepole 1.1.2
-- Current development branch: `optimize-speed-cache-icon`
-- Current draft PR: #1 — `Improve custom overlay tracking and orbit responsiveness`
+- Current development branch: `threepole-custom-dev`
+- Current draft PR: #2 — `Threepole Custom development: tracking and process-free overlay`
 - Current custom version documented by the active work: 1.1.4
 
 The permanent goal is to make Threepole Custom **measurably faster, more reliable and richer in useful features than original Threepole**, with preferably equal or lower CPU, RAM and network use and without additional or riskier interaction with Destiny 2. Original Threepole 1.1.2 is the permanent technical comparison baseline and minimum standard, not the final performance goal. Earlier “close to original” or parity-only targets are superseded; a measured advantage is not yet established.
@@ -83,7 +83,7 @@ Codex is now the central workspace for development, debugging, tests, performanc
 
 Start sessions inside the correct repository checkout and follow root AGENTS.md. It explicitly routes future sessions to the existing knowledge files. Those linked documents still need to be read; automatic instruction discovery does not automatically include all of `docs/`. Keep AGENTS concise, preserve its location and inspect any applicable override before work. No extra global configuration or duplicate instruction tree is required. [Official instruction-discovery documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 
-Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The window/tray clarification supersedes the previously planned rebuild. The user subsequently authorized package 1 only: process-free overlay recognition, focused tests, existing-document updates and a CI MSI testbuild. Window/tray, shutdown, Bungie pollers, manifest/history and notification changes remain outside that order. Keep CI unchanged and PR #1 open/Draft; no merge. Future packages require their own user order.
+Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The window/tray clarification supersedes the previously planned rebuild. The user subsequently authorized package 1 only: process-free overlay recognition, focused tests, existing-document updates and a CI MSI testbuild. Window/tray, shutdown, Bungie pollers, manifest/history and notification changes remain outside that order. A subsequent order authorizes renaming the development branch to `threepole-custom-dev`, updating the Windows push trigger and continuing the automatically closed PR #1 as Draft PR #2. Keep the remaining CI configuration unchanged and PR #2 open/Draft; no merge. Future packages require their own user order.
 
 ## Knowledge-base map
 

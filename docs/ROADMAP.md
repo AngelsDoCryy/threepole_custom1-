@@ -1,6 +1,6 @@
 # Threepole Custom — Technical roadmap
 
-Updated 2026-10-14: separately authorized package 1 (process-free overlay recognition) is implemented for MSI testing; window/tray and shutdown behavior remain unchanged. **Other runtime changes below remain proposals.** Keep PR #1 open and Draft. Version metadata remains 1.1.4; identify testbuilds by commit/workflow.
+Updated 2026-10-14: separately authorized package 1 (process-free overlay recognition) is implemented for MSI testing; window/tray and shutdown behavior remain unchanged. **Other runtime changes below remain proposals.** Keep PR #2 open and Draft. Version metadata remains 1.1.4; identify testbuilds by commit/workflow.
 
 Safety requirements are in [PROJECT_CONTEXT](PROJECT_CONTEXT.md), source-level API/cache findings in [DESTINY_API](DESTINY_API.md), notification behavior in [CUSTOM_FEATURES](CUSTOM_FEATURES.md), and the complete live matrix in [PERFORMANCE](PERFORMANCE.md). Do not duplicate those inventories here.
 
@@ -73,7 +73,7 @@ No remote icon requests or restored activity-type icon endpoint. Keep this indep
 - Vite build; separate type-check coverage should be added/evaluated in a dedicated tooling change, because current CI does not provide it.
 - Windows MSI build for runtime/packaging changes; test after Tauri configures Cargo features as the current workflow does.
 - Record commit, test results, build/artifact link, request-volume/CPU/RAM impact and remaining live acceptance, including FPS/frametime/microstutter evidence where safely available. Distinguish measured gains from expectations. A green build does not prove API latency, resource savings or exit behavior.
-- Keep version notes and the owning knowledge file aligned with shipped behavior. Do not merge PR #1 automatically.
+- Keep version notes and the owning knowledge file aligned with shipped behavior. Do not merge PR #2 automatically.
 
 ## Minimal environment decision
 

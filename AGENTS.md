@@ -9,8 +9,9 @@ Check checkout, branch, working changes and PR head. Report missing context inst
 ## Repository
 
 - Repository: `AngelsDoCryy/threepole_custom1-`; custom base: original Threepole 1.1.2.
-- Active branch: `optimize-speed-cache-icon`; draft PR #1 targets `main`; custom version: 1.1.4.
-- Do not work directly on `main` or merge PR #1 without explicit instruction.
+- Active branch: `threepole-custom-dev`; draft PR #2 targets `main`; custom version: 1.1.4.
+- Use the existing checkout on `threepole-custom-dev` by default in future sessions, with upstream `origin/threepole-custom-dev`. GitHub's default branch remains `main`; that is not the development target. Check the branch before editing and never switch away from unrelated uncommitted work blindly.
+- Do not work directly on `main` or merge PR #2 without explicit instruction.
 - [Original Threepole](https://github.com/des-sh/threepole) is the permanent technical comparison source; 1.1.2 is the Custom base. For future optimizations inspect relevant original-versus-Custom code differences and record the original commit/version compared. Original is the minimum standard, not the final performance goal. Preserve existing features/settings except for explicitly requested changes.
 
 ## Permanent development objective
