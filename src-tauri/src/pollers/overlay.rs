@@ -107,33 +107,40 @@ fn foreground_target(overlay: HWND, previous: Option<HWND>) -> Option<(HWND, Bou
 #[derive(Default)]
 struct Placement {
     applied: Option<Bounds>,
+    scale_factor: f64,
 }
 
 impl Placement {
     fn update(
         &mut self,
         target: Option<Bounds>,
+        scale_factor: f64,
         apply: impl FnOnce(Bounds, bool, bool) -> bool,
     ) -> bool {
         let bounds = match target {
-            Some(bounds) => bounds,
-            None => {
+            Some(bounds) if scale_factor.is_finite() && scale_factor > 0.0 => bounds,
+            _ => {
                 self.applied = None;
                 return false;
             }
         };
-        let position_changed = self
-            .applied
-            .map_or(true, |old| (old.x, old.y) != (bounds.x, bounds.y));
-        let size_changed = self
-            .applied
-            .map_or(true, |old| (old.width, old.height) != (bounds.width, bounds.height));
+        let position_changed = self.scale_factor != scale_factor
+            || self
+                .applied
+                .map_or(true, |old| (old.x, old.y) != (bounds.x, bounds.y));
+        // Moving across monitors may let Windows resize the overlay for its new
+        // DPI. Reassert physical size after a move or a scale-factor change.
+        let size_changed = position_changed
+            || self.applied.map_or(true, |old| {
+                (old.width, old.height) != (bounds.width, bounds.height)
+            });
 
         if (position_changed || size_changed) && !apply(bounds, position_changed, size_changed) {
             self.applied = None;
             return false;
         }
         self.applied = Some(bounds);
+        self.scale_factor = scale_factor;
         true
     }
 }
@@ -150,29 +157,38 @@ pub async fn overlay_poller(handle: AppHandle) {
         // This is our own window handle, never a process handle or PID.
         let overlay_hwnd = overlay.hwnd().ok().map(|hwnd| HWND(hwnd.0));
         let target = overlay_hwnd.and_then(|hwnd| foreground_target(hwnd, previous_target));
-        let placed = placement.update(target.map(|(_, bounds)| bounds), |bounds, position, size| {
-            if position
-                && overlay
-                    .set_position(PhysicalPosition {
-                        x: bounds.x,
-                        y: bounds.y,
-                    })
-                    .is_err()
-            {
-                return false;
-            }
-            if size
-                && overlay
-                    .set_size(PhysicalSize {
-                        width: bounds.width,
-                        height: bounds.height,
-                    })
-                    .is_err()
-            {
-                return false;
-            }
-            true
-        });
+        let scale_factor = if target.is_some() {
+            overlay.scale_factor().unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let placed = placement.update(
+            target.map(|(_, bounds)| bounds),
+            scale_factor,
+            |bounds, position, size| {
+                if position
+                    && overlay
+                        .set_position(PhysicalPosition {
+                            x: bounds.x,
+                            y: bounds.y,
+                        })
+                        .is_err()
+                {
+                    return false;
+                }
+                if size
+                    && overlay
+                        .set_size(PhysicalSize {
+                            width: bounds.width,
+                            height: bounds.height,
+                        })
+                        .is_err()
+                {
+                    return false;
+                }
+                true
+            },
+        );
 
         // Focus or window lifetime can change during placement. A previous HWND
         // never proves identity; validate it again even when our overlay has focus.
@@ -309,42 +325,54 @@ mod tests {
     #[test]
     fn unchanged_geometry_does_not_update_the_window() {
         let mut placement = Placement::default();
-        assert!(placement.update(Some(bounds()), |_, position, size| position && size));
-        assert!(placement.update(Some(bounds()), |_, _, _| panic!("redundant update")));
+        assert!(placement.update(Some(bounds()), 1.25, |_, position, size| position && size));
+        assert!(placement.update(Some(bounds()), 1.25, |_, _, _| panic!("redundant update")));
     }
 
     #[test]
-    fn movement_and_resize_only_update_the_changed_dimension() {
+    fn movement_reasserts_size_and_resize_skips_position() {
         let mut placement = Placement::default();
-        assert!(placement.update(Some(bounds()), |_, _, _| true));
+        assert!(placement.update(Some(bounds()), 1.25, |_, _, _| true));
         let moved = Bounds {
             x: -2560,
             ..bounds()
         };
-        assert!(placement.update(Some(moved), |_, position, size| position && !size));
+        assert!(placement.update(Some(moved), 1.25, |_, position, size| position && size));
         let resized = Bounds {
             width: 1920,
             ..moved
         };
-        assert!(placement.update(Some(resized), |_, position, size| !position && size));
+        assert!(placement.update(Some(resized), 1.25, |_, position, size| !position && size));
+    }
+
+    #[test]
+    fn dpi_change_reapplies_physical_bounds_and_invalid_scale_hides() {
+        let mut placement = Placement::default();
+        assert!(placement.update(Some(bounds()), 1.25, |_, _, _| true));
+        assert!(placement.update(Some(bounds()), 1.5, |_, position, size| position && size));
+        assert!(placement.update(Some(bounds()), 1.5, |_, _, _| panic!("redundant DPI update")));
+        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert!(!placement.update(Some(bounds()), scale, |_, _, _| panic!("invalid DPI")));
+            assert_eq!(placement.applied, None);
+        }
     }
 
     #[test]
     fn lost_target_hides_and_reentry_reapplies_geometry() {
         let mut placement = Placement::default();
-        assert!(placement.update(Some(bounds()), |_, _, _| true));
-        assert!(!placement.update(None, |_, _, _| panic!("missing target")));
+        assert!(placement.update(Some(bounds()), 1.25, |_, _, _| true));
+        assert!(!placement.update(None, 1.25, |_, _, _| panic!("missing target")));
         assert_eq!(placement.applied, None);
-        assert!(placement.update(Some(bounds()), |_, position, size| position && size));
+        assert!(placement.update(Some(bounds()), 1.25, |_, position, size| position && size));
     }
 
     #[test]
     fn failed_placement_hides_and_retries_in_full() {
         let mut placement = Placement::default();
-        assert!(placement.update(Some(bounds()), |_, _, _| true));
+        assert!(placement.update(Some(bounds()), 1.25, |_, _, _| true));
         let moved = Bounds { x: 1, ..bounds() };
-        assert!(!placement.update(Some(moved), |_, _, _| false));
+        assert!(!placement.update(Some(moved), 1.25, |_, _, _| false));
         assert_eq!(placement.applied, None);
-        assert!(placement.update(Some(moved), |_, position, size| position && size));
+        assert!(placement.update(Some(moved), 1.25, |_, position, size| position && size));
     }
 }

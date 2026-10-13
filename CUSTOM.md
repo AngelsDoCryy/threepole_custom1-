@@ -8,7 +8,7 @@ Development update: 2026-10-14. Version metadata remains 1.1.4; distinguish the 
 - Removes foreground process/PID inspection and the unbounded process-name cache.
 - Uses the locally observed Destiny window title/class plus visibility/geometry at the unchanged 200 ms interval; hides on failed detection/placement and retries.
 - Avoids unchanged position/size calls while retaining visibility-event recovery.
-- Adds ten Rust regression tests; existing frontend/Rust checks and Windows MSI packaging remain required.
+- Adds eleven Rust regression tests; existing frontend/Rust checks and Windows MSI packaging remain required.
 - No Bungie request/poller, activity/timer/clear, settings, tray/exit or CI changes. Live overlay compatibility and net CPU/RAM effects still need the tests in PERFORMANCE.
 
 ## 1.1.4: Orbit and activity status responsiveness
