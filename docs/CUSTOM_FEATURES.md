@@ -62,7 +62,7 @@ The 2026-10-11 takeover reproduced both cases in an isolated in-memory execution
 
 Custom app ID `sh.des.threepole.custom`, config directory `threepole-custom` and named pipe `threepole-custom-open` isolate the custom app. The automatic updater is disabled so official releases cannot overwrite it.
 
-**Current behavior:** X destroys the UI window while the tray/player-data/overlay work continues; – minimizes normally; single tray click activates. Disabling overlay closes its window/poller but not the player-data task. Tray Exit directly terminates the process, without central task cancellation/cleanup coordination. The binding window/tray action table in PROJECT_CONTEXT is pending separate implementation. Tracking and overlay must continue in intentional tray operation while unnecessary hidden UI updates pause; full Exit must end all app-owned work/resources. The process-name lookup remains a separate safety conflict, not an approved exception.
+**Current and accepted behavior:** X destroys the UI window while the tray/player-data/overlay work continues; – minimizes normally; simple tray click reopens/activates. Preserve this behavior, including auxiliary windows. Disabling overlay closes its window/poller but not the player-data task. Tray Exit directly terminates the process. Verify that all app-owned work/resources cease; absence of central cancellation/cleanup alone is not a proven failure. No mandatory double-click or retained-hidden-window redesign is required. PROJECT_CONTEXT owns the latest clarification; any concrete exit defect needs a minimal proposal and separate implementation approval. The process-name lookup remains a separate safety conflict, not an approved exception.
 
 ## Deferred polish
 

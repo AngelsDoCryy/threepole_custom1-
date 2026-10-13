@@ -24,7 +24,7 @@ On an older build, the first Dungeon was recognized after about 30 seconds, whil
 | Overlay | Serialized/retryable show/hide, listener-before-snapshot initialization, stopped hidden/disabled timer interval | Details window retains a separate 30 Hz interval; actual CPU/memory not benchmarked |
 | Windows handles | CloseHandle after foreground executable lookup, including lookup failure | Fixing the leak does not make process access compliant with the safety requirement |
 
-No new independent background service was introduced. Intentional tray operation with continued tracking/overlay is now required, but current X destroys the UI instead of hiding it and complete orderly shutdown remains unimplemented/unverified. See [PROJECT_CONTEXT](PROJECT_CONTEXT.md) for the binding action table and current exit semantics.
+No new independent background service was introduced. Current X closes the UI while tracking/overlay continue; simple tray click reopens it. This behavior is explicitly accepted and must be preserved. Complete Exit needs Windows verification; lack of a central shutdown framework alone is not proof of a defect. See [PROJECT_CONTEXT](PROJECT_CONTEXT.md).
 
 ## Confirmed bottlenecks and unmeasured risks
 
@@ -32,7 +32,7 @@ Confirmed from code: initial history gates first usable data; manifest errors re
 
 Further measurement targets: repeated full daily-history pagination, detail-window metadata contention, full player-data/history cloning and event payloads, synchronous cache writes, cache invalidation/size, foreground handle reuse, details-window timer activity, and stale-data/error presentation. Their existence is observable in code; their real performance cost has not been measured. Do not present them as the proven cause of the historical 2–3 minute delay.
 
-The foreground HWND/name cache is unbounded and does not invalidate reused handles; it must not survive as a substitute for the forbidden process query. Overlay geometry is reapplied every 200 ms even when unchanged, and invalid geometry does not explicitly hide a previously visible overlay. Hidden popup queues have no bound; name-hide and existing popup timeouts remain scheduled. Details uses a 30 Hz timer plus a 30-second age refresh without an explicit visibility pause. Their cost needs measurement; they do not justify changing notification semantics silently. Retaining a hidden main webview may improve restore speed while retaining more RAM than today's destroyed window; measure and present that tradeoff before implementation.
+The foreground HWND/name cache is unbounded and does not invalidate reused handles; it must not survive as a substitute for the forbidden process query. Overlay geometry is reapplied every 200 ms even when unchanged, and invalid geometry does not explicitly hide a previously visible overlay. Hidden popup queues have no bound; name-hide and existing popup timeouts remain scheduled. Details uses a 30 Hz timer plus a 30-second age refresh without an explicit visibility pause while its window exists; X destroys that webview. Their cost needs measurement; they do not justify changing notification semantics or window management silently. Retaining a hidden main webview is no longer a planned optimization; preserve current destruction/recreation and assess unnecessary UI work separately if measurements justify it.
 
 The overlay's milliseconds option changes drawing frequency from about 2 Hz to 30 Hz; it does not change API polling. Name/auto-hide, counters, notifications and local icons must not add requests or materially increase overhead.
 
@@ -49,6 +49,8 @@ If code-level tests do not explain remaining latency, add low-overhead, opt-in d
 Separate Bungie data age from local request, lock, state and rendering delay. Record request counts and cold/warm CPU, memory and handle behavior before and after fixes. Do not infer affinity/backend routing causes from timing alone.
 
 ## Permanent original-versus-Custom comparison method
+
+Use [des-sh/threepole](https://github.com/des-sh/threepole) as a continuing source-code reference. Before each relevant optimization compare original and Custom retrieval, scheduling, locks/caches, state publication and rendering paths; record upstream commit/version and Custom commit. Identify necessary feature cost versus avoidable local delay, and separate the original 1.1.2 base from newer upstream changes. Do not claim a fresh source comparison when only historical knowledge or measurements are available. Reference code never overrides the safety boundary.
 
 Use identifiable original and Custom builds under matching Windows, hardware, game/display, activity, profile and feature settings. Compare shared features on equal settings and separately report the cost of Custom-only options. Prefer repeated alternating runs rather than concurrent apps; if concurrent, disclose extra API/load effects. Record cache state, test order, trial count and long-session duration; no arbitrary speed threshold is claimed without a baseline.
 
@@ -76,7 +78,7 @@ Record tested commit/MSI, Windows/display mode, profile/character count, setting
 | Slow/failed history, manifest, offline/recovery, throttling | Partial readiness, bounded retries, recovery, visible stale/error state; use mocked failures where live reproduction is impractical |
 | Empty/corrupt cache; unknown activity | Conservative classification and later enrichment, no request storm |
 | Settings and overlay focus | Independent timer/name/auto-hide/counter/notifications; milliseconds on/off; hide/show, alt-tab, resize and fullscreen behavior |
-| Windows lifecycle | Main X hides to tray; – minimizes to taskbar; double-click restores/focuses; auxiliary X closes only itself; tracking/overlay continue while UI work pauses; actual Exit during startup/HTTP/profile changes stops all app-owned work, releases pipe/windows and permits restart |
+| Windows lifecycle | Preserve current main X and simple tray-click reopening, normal minimize and auxiliary-window behavior; tracking/overlay continue in tray; verify actual Exit during startup/HTTP/profile changes stops app-owned work, releases pipe/windows and permits restart; propose minimal fixes only for reproduced defects |
 | Installation/icons | MSI install/upgrade, custom/original separation, updater disabled, Eager Edge app/tray/installer/popup/clear surfaces |
 
 There is no OAuth flow to time as a login: measure profile loading. Exclusive fullscreen currently hides the separate overlay; do not propose game hooks to change that.

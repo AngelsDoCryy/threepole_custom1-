@@ -11,7 +11,7 @@ Check checkout, branch, working changes and PR head. Report missing context inst
 - Repository: `AngelsDoCryy/threepole_custom1-`; custom base: original Threepole 1.1.2.
 - Active branch: `optimize-speed-cache-icon`; draft PR #1 targets `main`; custom version: 1.1.4.
 - Do not work directly on `main` or merge PR #1 without explicit instruction.
-- Original Threepole 1.1.2 is the permanent technical comparison baseline and minimum standard, not the final performance goal. Preserve existing features/settings except for explicitly requested changes.
+- [Original Threepole](https://github.com/des-sh/threepole) is the permanent technical comparison source; 1.1.2 is the Custom base. For future optimizations inspect relevant original-versus-Custom code differences and record the original commit/version compared. Original is the minimum standard, not the final performance goal. Preserve existing features/settings except for explicitly requested changes.
 
 ## Permanent development objective
 
@@ -29,9 +29,9 @@ Activity data must use official Bungie APIs/web/manifest data. The overlay must 
 - anti-cheat bypass/manipulation or other risky game-state inspection;
 - an always-running service, scheduled task or persistent helper/runtime dependency.
 
-Binding lifecycle: main X hides to system tray while tracking/overlay continue; – minimizes to taskbar; tray double-click restores/focuses; auxiliary X closes that window only; tray Exit fully stops all app work/resources. Pause unnecessary hidden UI updates. Intentional tray operation means running; complete exit means no remaining Threepole-owned work. This target still requires separate implementation approval.
+Binding lifecycle clarification: preserve current window/tray behavior. Main X removes the visible window while tracking/overlay continue; simple tray click reopens it. Keep normal minimize and auxiliary-window behavior. Do not require double-click or replace window close/recreation with retained hidden windows. Tray Exit must end all app-owned work/resources. Verify complete exit first; propose the smallest resource-conscious correction only for a demonstrated defect and implement only after user approval.
 
-**Unresolved gaps:** overlay visibility opens the foreground process to identify `destiny2.exe`; current X destroys the UI rather than hiding it, tray activation uses single click, and orderly shutdown is not centrally coordinated. PROJECT_CONTEXT distinguishes current process exit from the unimplemented lifecycle target. ROADMAP makes safety/lifecycle the first gate. Do not claim full compliance or absolute account safety; explain unsupported features and safe alternatives. Documentation does not authorize runtime changes.
+**Unresolved safety finding:** overlay visibility opens the foreground process to identify `destiny2.exe`. This remains separate from the accepted window/tray behavior. Missing central shutdown coordination alone is not proof of faulty exit or grounds for a rewrite; Windows shutdown evidence remains pending. PROJECT_CONTEXT records findings and ROADMAP limits work package 1 to safety/exit verification and justified minimal proposals. Do not claim full compliance or absolute account safety. Documentation does not authorize runtime changes.
 
 ## Priorities and invariants
 

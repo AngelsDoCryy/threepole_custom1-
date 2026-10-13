@@ -5,13 +5,15 @@ This file owns the durable user decisions and workflow. Last alignment: 2026-10-
 ## Project identity
 
 - Repository: `AngelsDoCryy/threepole_custom1-`
-- Upstream project: `des-sh/threepole`
+- Upstream project and permanent technical reference: [des-sh/threepole](https://github.com/des-sh/threepole)
 - Custom project base: original Threepole 1.1.2
 - Current development branch: `optimize-speed-cache-icon`
 - Current draft PR: #1 — `Improve custom overlay tracking and orbit responsiveness`
 - Current custom version documented by the active work: 1.1.4
 
 The permanent goal is to make Threepole Custom **measurably faster, more reliable and richer in useful features than original Threepole**, with preferably equal or lower CPU, RAM and network use and without additional or riskier interaction with Destiny 2. Original Threepole 1.1.2 is the permanent technical comparison baseline and minimum standard, not the final performance goal. Earlier “close to original” or parity-only targets are superseded; a measured advantage is not yet established.
+
+For future optimizations inspect the relevant code paths in the original repository alongside Custom, not only benchmark results. Record the compared upstream commit/version; distinguish the 1.1.2 base from any newer upstream revision instead of silently changing the reference. Explain which differences are required by Custom features and which add avoidable delay or resource cost. Original code is a reference, not an exception to our safety rules.
 
 ## Core priorities
 
@@ -45,25 +47,25 @@ When Threepole fully exits, all its polling/tasks and resources must stop. Inten
 
 `src-tauri/src/pollers/overlay.rs::get_hwnd_exec` uses `OpenProcess(PROCESS_QUERY_INFORMATION)` and `K32GetModuleFileNameExW` to compare the foreground executable name with `destiny2.exe`. This predates the current PR's fixes; the PR closes the acquired handle. It is not an activity-memory reader, injection or input hook, but it **is direct process access**, so the current implementation cannot be described as fully meeting the boundary above. Review and replace the mechanism within the boundary; do not weaken the requirement by changing its wording.
 
-`src/window/window.ts` currently calls `close()` for every X and `minimize()` for –. `main.rs` prevents ordinary application exit; the tray uses **single** left-click activation. Existing windows are unminimized/focused without an explicit show call. The primary window is `details`, or `profiles` before profile selection; preferences and normally profile management are auxiliary. X destroys that webview while player-data/overlay work continues; it does not yet implement the agreed hide/restore contract. Disabling the overlay closes its window and aborts its poller, not player-data polling.
+`src/window/window.ts` currently calls `close()` for every X and `minimize()` for –. `main.rs` prevents ordinary application exit; the tray uses **single** left-click activation. Existing windows are unminimized/focused; closed windows are recreated. The primary window is `details`, or `profiles` before profile selection; preferences and normally profile management are auxiliary. X destroys that webview while player-data/overlay work continues. The user now explicitly accepts this behavior; destruction/recreation is not a defect requiring replacement with hide/show. Disabling the overlay closes its window and aborts its poller, not player-data polling.
 
-Tray Exit calls `AppHandle::exit(0)`. In the pinned [Tauri 1.2.4 implementation](https://github.com/tauri-apps/tauri/blob/tauri-v1.2.4/core/tauri/src/app.rs), this performs framework cleanup then `std::process::exit`; the ordinary `ExitRequested` prevention does not block that direct exit. There is no separate polling service in the inspected source and no evidence that Rust pollers survive successful process termination. What is missing is coordinated cancellation/cleanup and Windows evidence for all app-owned resources, including WebView2 helpers; do not misreport that gap as a demonstrated post-exit polling leak.
+Tray Exit calls `AppHandle::exit(0)`. In the pinned [Tauri 1.2.4 implementation](https://github.com/tauri-apps/tauri/blob/tauri-v1.2.4/core/tauri/src/app.rs), this performs framework cleanup then `std::process::exit`; the ordinary `ExitRequested` prevention does not block that direct exit. There is no separate polling service in the inspected source and no evidence that Rust pollers survive successful process termination. Windows evidence for all app-owned resources, including WebView2 helpers, remains pending. The absence of central cancellation/cleanup is not itself a demonstrated exit defect or authorization for an architectural rewrite.
 
-Player-data reset and overlay replacement abort stored handles without awaiting completion. Startup, tray activation and named-pipe tasks are spawned without retained handles; one-off profile/search/metadata IPC requests are outside the player-data task. There is no central stopping state preventing new work. These are the lifecycle coverage gaps addressed by ROADMAP, not an instruction to add a background supervisor.
+Player-data reset and overlay replacement abort stored handles without awaiting completion. Startup, tray activation and named-pipe tasks are spawned without retained handles; one-off profile/search/metadata IPC requests are outside the player-data task. There is no central stopping state preventing new work. Preserve these findings as test targets, not proof that tasks survive process termination. Propose a minimal correction only if concrete failure is demonstrated; add no background supervisor.
 
-### Binding window and tray behavior — decided, not implemented
+### Binding window and tray behavior — preserve current behavior
 
-The user's explicit decision supersedes the earlier unresolved close-to-tray wording:
+The latest user clarification supersedes the previous double-click and retained-hidden-window requirements. The user is satisfied with the existing interaction:
 
 | Action | Required behavior |
 | --- | --- |
-| X in main window | Hide into Windows system tray, without a taskbar window; tracking and overlay continue |
+| X in main window | Visible window disappears; preserve existing close/recreation behavior while tracking and overlay continue in the tray |
 | – in main window | Normal minimize into the Windows taskbar |
-| Tray double-click | Show, restore and focus the main window |
+| Simple tray click | Reopen/activate the main window as today; no mandatory double-click |
 | X in settings/profile management | Close only that auxiliary window |
 | Tray → Exit / Beenden | Fully end the app, polling, in-flight HTTP work, timers, windows and all other app-owned resources |
 
-Tray operation is intentionally running, not “closed.” Pause unnecessary rendering in hidden/minimized UI while preserving tracking and overlay behavior. Add no unnecessary process, service, autostart, timer or poller. Window roles must account for the initial profile screen; do not silently treat a startup primary window as an auxiliary one. The complete behavior requires a separate implementation order and Windows acceptance tests.
+Tray operation is intentionally running, not “closed.” Do not rebuild window management or retain an extra hidden webview merely to satisfy the superseded wording. Preserve initial profile setup and auxiliary-window behavior. Review complete Exit for remaining app-owned tasks, HTTP work, timers, windows/helpers and pipe resources; no fresh Windows verification is claimed by this documentation clarification. If a concrete problem is found, explain evidence, the smallest correction and its resource/API/feature effects, then obtain implementation approval. Unnecessary UI work remains an optimization candidate only when justified by measurement. Add no unnecessary process, service, autostart, timer or poller.
 
 ### Icon decision
 
@@ -81,7 +83,7 @@ Codex is now the central workspace for development, debugging, tests, performanc
 
 Start sessions inside the correct repository checkout and follow root AGENTS.md. It explicitly routes future sessions to the existing knowledge files. Those linked documents still need to be read; automatic instruction discovery does not automatically include all of `docs/`. Keep AGENTS concise, preserve its location and inspect any applicable override before work. No extra global configuration or duplicate instruction tree is required. [Official instruction-discovery documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 
-Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The 2026-10-13 order authorizes necessary existing-document changes and a commit/push on the active branch only. It does not authorize implementation of work package 1, dependency/tool installation, CI changes, merge or removal of Draft status. Future implementation requires its own user order; these durable rules guide that work rather than authorizing it automatically.
+Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The latest clarification is documentation-only and supersedes the previously planned window/tray rebuild. It does not authorize implementation, dependency/tool installation, CI changes, merge or removal of Draft status. Future implementation requires its own user order; these durable rules guide that work rather than authorizing it automatically.
 
 ## Knowledge-base map
 

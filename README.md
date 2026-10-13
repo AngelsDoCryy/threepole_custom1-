@@ -88,7 +88,7 @@ The original Threepole automatic updater is disabled in this build to prevent of
 
 Activity data must use official Bungie API/web/manifest sources; ordinary Windows window queries without direct process access are allowed for the separate overlay. No game-process access, injection/hooks, anti-cheat manipulation or app work after full exit is permitted. These requirements have no implicit legacy exceptions.
 
-Activity data comes from Bungie; no gameplay-memory reader, injection, input/gameplay automation or game-file modification was found. **Open safety gap:** inherited overlay visibility opens a process to identify `destiny2.exe`. No separate polling service was found. The binding window/tray contract preserves tracking/overlay during intentional tray operation and requires full shutdown through tray Exit. Current window/tray code and orderly cleanup still need changes; analysis is complete, implementation and Windows acceptance are pending. [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) owns the action table, current behavior and safety limits.
+Activity data comes from Bungie; no gameplay-memory reader, injection, input/gameplay automation or game-file modification was found. **Open safety gap:** inherited overlay visibility opens a process to identify `destiny2.exe`. No separate polling service was found. Preserve current window/tray behavior: X removes the visible window while tracking/overlay continue, simple tray click reopens it, and tray Exit ends the app. Verify full exit on Windows; propose minimal corrections only for concrete defects, with separate approval before implementation. No mandatory double-click or blanket window-management rewrite is planned. [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) owns the action table and safety limits.
 
 ---
 
@@ -99,6 +99,8 @@ Threepole was originally created by des-sh.
 https://github.com/des-sh/threepole
 
 This custom version is based on that project and retains the original project license.
+
+Use the original repository as a continuing technical reference for future optimizations: compare relevant original/Custom code paths and record the compared commits/versions alongside performance evidence.
 
 ---
 
