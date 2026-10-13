@@ -17,9 +17,9 @@ Start Codex sessions with [`AGENTS.md`](AGENTS.md). Durable context from ChatGPT
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — current priorities, open validation and future work
 - [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) — detailed handoff from prior ChatGPT and Work development sessions
 
-Development rules aligned 2026-10-13; runtime remains **1.1.4**. CODEX_HANDOFF records commit/build evidence, including successful build #20. Codex handles natural-language development orders, tests and Windows MSI delivery; GitHub holds durable history. See [`BUILD-GITHUB-DE.md`](BUILD-GITHUB-DE.md) for the minimal local environment and existing CI build path.
+Package 1 was implemented on 2026-10-14 for Windows MSI testing; version metadata remains **1.1.4**, so identify the build by commit/workflow. CODEX_HANDOFF records the baseline and validation scope. Codex handles natural-language development orders, tests and Windows MSI delivery; GitHub holds durable history. See [`BUILD-GITHUB-DE.md`](BUILD-GITHUB-DE.md) for the minimal local environment and existing CI build path.
 
-**Permanent goal:** measurably faster, more reliable and richer than original Threepole, at preferably equal or lower resource use and without additional/riskier Destiny interaction. Original is the comparison baseline and minimum standard, not the final target. A measured advantage is not established yet; PROJECT_CONTEXT owns the rules and PERFORMANCE the benchmark method. This documentation-only update does not authorize implementation.
+**Permanent goal:** measurably faster, more reliable and richer than original Threepole, at preferably equal or lower resource use and without additional/riskier Destiny interaction. Original is the comparison baseline and minimum standard, not the final target. A measured advantage is not established yet; PROJECT_CONTEXT owns the rules and PERFORMANCE the benchmark method. Further implementation packages require separate user approval.
 
 ---
 
@@ -88,7 +88,7 @@ The original Threepole automatic updater is disabled in this build to prevent of
 
 Activity data must use official Bungie API/web/manifest sources; ordinary Windows window queries without direct process access are allowed for the separate overlay. No game-process access, injection/hooks, anti-cheat manipulation or app work after full exit is permitted. These requirements have no implicit legacy exceptions.
 
-Activity data comes from Bungie; no gameplay-memory reader, injection, input/gameplay automation or game-file modification was found. **Open safety gap:** inherited overlay visibility opens a process to identify `destiny2.exe`. No separate polling service was found. Preserve current window/tray behavior: X removes the visible window while tracking/overlay continue, simple tray click reopens it, and tray Exit ends the app. Verify full exit on Windows; propose minimal corrections only for concrete defects, with separate approval before implementation. No mandatory double-click or blanket window-management rewrite is planned. [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) owns the action table and safety limits.
+Activity data comes from Bungie; no gameplay-memory reader, injection, input/gameplay automation or game-file modification was found. **Package 1:** overlay visibility uses freshly read foreground window title/class, visibility and geometry; the inherited process/PID lookup and unbounded identity cache are removed. Matching metadata was observed on the user's game; full Windows/overlay acceptance and CPU/RAM comparison remain pending (see PERFORMANCE). No separate polling service was found. Preserve current window/tray behavior: X removes the visible window while tracking/overlay continue, simple tray click reopens it, and tray Exit ends the app. Verify full exit on Windows; propose minimal corrections only for concrete defects, with separate approval before implementation. No mandatory double-click or blanket window-management rewrite is planned. [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) owns the action table and safety limits.
 
 ---
 

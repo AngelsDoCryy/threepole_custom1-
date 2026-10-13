@@ -6,7 +6,7 @@ Implemented baseline: 1.1.4; audited 2026-10-11. Source: `src-tauri/src/api.rs`,
 
 Activity data must come from Bungie web/API/manifest sources only. No Destiny process access/inspection, memory read/write, DLL/code injection, game/DirectX/RTSS-style hooks, input hooks/automation or game-file modification. Unsupported features must stay unsupported rather than bypass this boundary.
 
-The inherited overlay process-name query is a documented unresolved conflict, not an exception. Ordinary Windows window queries without direct process access are allowed for the separate overlay, not as a source of gameplay state. Intentional tray operation keeps tracking active; full tray Exit must stop app work. [PROJECT_CONTEXT](PROJECT_CONTEXT.md) owns the findings and binding lifecycle contract.
+Package 1 removes the inherited overlay process-name query; window metadata is used only for overlay focus/placement and adds no Bungie requests. Ordinary Windows window queries without direct process access are allowed for the separate overlay, not as a source of gameplay state. Intentional tray operation keeps tracking active; full tray Exit must stop app work. [PROJECT_CONTEXT](PROJECT_CONTEXT.md) owns the findings and binding lifecycle contract.
 
 ## Current endpoints and request budget
 

@@ -2,7 +2,14 @@
 
 Based on Threepole 1.1.2.
 
-Documentation alignment: 2026-10-11. Sections below describe shipped history; current requirements and unresolved gaps are in `docs/`. This cleanup changes no implementation or version.
+Development update: 2026-10-14. Version metadata remains 1.1.4; distinguish the following MSI testbuild work by commit/workflow. Earlier sections describe shipped history; current requirements and unresolved gaps are in `docs/`.
+
+## Package 1: Process-free overlay recognition (development testbuild)
+- Removes foreground process/PID inspection and the unbounded process-name cache.
+- Uses the locally observed Destiny window title/class plus visibility/geometry at the unchanged 200 ms interval; hides on failed detection/placement and retries.
+- Avoids unchanged position/size calls while retaining visibility-event recovery.
+- Adds ten Rust regression tests; existing frontend/Rust checks and Windows MSI packaging remain required.
+- No Bungie request/poller, activity/timer/clear, settings, tray/exit or CI changes. Live overlay compatibility and net CPU/RAM effects still need the tests in PERFORMANCE.
 
 ## 1.1.4: Orbit and activity status responsiveness
 - Restores the standalone CharacterActivities (204) request with the existing two-second pause. Optional Transitory (1000) is fetched independently, immediately after initial data loads and then with a ten-second pause (at most six extra requests per minute in steady state).
@@ -40,7 +47,7 @@ Documentation alignment: 2026-10-11. Sections below describe shipped history; cu
 ## Safety model
 Required: official Bungie API/web/manifest activity data and ordinary process-free Windows window queries for the separate overlay. No direct Destiny process access, memory read/write, injection, game/input hooks, gameplay automation, game-file edits, anti-cheat manipulation or independent background service. No app work after full exit; intentional tray operation is a running state.
 
-Current activity data uses Bungie API/manifest sources. Inherited `OpenProcess`/executable-name inspection remains a safety conflict. X destroys the UI while polling continues; simple tray click reopens it and Exit directly terminates the process. The latest user clarification accepts this interaction and supersedes the previously proposed double-click/hidden-window redesign. Verify complete exit and propose minimal corrections only for concrete defects; no such runtime change is approved. No gameplay-memory reader or injection was found. [PROJECT_CONTEXT](docs/PROJECT_CONTEXT.md) owns the binding behavior and permanent original comparison rules; [ROADMAP](docs/ROADMAP.md) owns safety/exit verification.
+Current activity data uses Bungie API/manifest sources. Package 1 removes inherited `OpenProcess`/executable-name inspection and uses window metadata only; observed identifiers and live-test limits are recorded in PERFORMANCE. X destroys the UI while polling continues; simple tray click reopens it and Exit directly terminates the process. The latest user clarification accepts this interaction and supersedes the previously proposed double-click/hidden-window redesign. Verify complete exit and propose minimal corrections only for concrete defects; no such runtime change is approved. No gameplay-memory reader or injection was found. [PROJECT_CONTEXT](docs/PROJECT_CONTEXT.md) owns the binding behavior and permanent original comparison rules; [ROADMAP](docs/ROADMAP.md) owns safety/exit verification.
 
 ## Current gaps and validation
 

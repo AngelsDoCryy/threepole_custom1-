@@ -1,6 +1,6 @@
 # Threepole Custom — Project Context
 
-This file owns the durable user decisions and workflow. Last alignment: 2026-10-13; implementation remains 1.1.4. Implemented behavior, unresolved conflicts and required future behavior must not be conflated.
+This file owns the durable user decisions and workflow. Last alignment: 2026-10-14; package 1 is implemented on the development branch with version metadata still 1.1.4. Implemented behavior, unresolved conflicts and required future behavior must not be conflated.
 
 ## Project identity
 
@@ -45,7 +45,7 @@ When Threepole fully exits, all its polling/tasks and resources must stop. Inten
 
 ### Current safety and lifecycle findings — not approved exceptions
 
-`src-tauri/src/pollers/overlay.rs::get_hwnd_exec` uses `OpenProcess(PROCESS_QUERY_INFORMATION)` and `K32GetModuleFileNameExW` to compare the foreground executable name with `destiny2.exe`. This predates the current PR's fixes; the PR closes the acquired handle. It is not an activity-memory reader, injection or input hook, but it **is direct process access**, so the current implementation cannot be described as fully meeting the boundary above. Review and replace the mechanism within the boundary; do not weaken the requirement by changing its wording.
+The inherited foreground executable lookup was a confirmed direct-process-access conflict, despite the earlier handle-leak fix. Separately authorized package 1 now removes `OpenProcess`, `K32GetModuleFileNameExW`, the PID query and the unbounded HWND/name cache. `pollers/overlay.rs` identifies the foreground window by freshly read title/class, visibility and valid geometry only; failure hides the overlay. No process-based fallback is permitted. PERFORMANCE owns the observed window metadata, source comparison and remaining Windows acceptance tests. This resolves that source-level conflict, not every live safety/reliability question or the pending full-exit verification.
 
 `src/window/window.ts` currently calls `close()` for every X and `minimize()` for –. `main.rs` prevents ordinary application exit; the tray uses **single** left-click activation. Existing windows are unminimized/focused; closed windows are recreated. The primary window is `details`, or `profiles` before profile selection; preferences and normally profile management are auxiliary. X destroys that webview while player-data/overlay work continues. The user now explicitly accepts this behavior; destruction/recreation is not a defect requiring replacement with hide/show. Disabling the overlay closes its window and aborts its poller, not player-data polling.
 
@@ -83,7 +83,7 @@ Codex is now the central workspace for development, debugging, tests, performanc
 
 Start sessions inside the correct repository checkout and follow root AGENTS.md. It explicitly routes future sessions to the existing knowledge files. Those linked documents still need to be read; automatic instruction discovery does not automatically include all of `docs/`. Keep AGENTS concise, preserve its location and inspect any applicable override before work. No extra global configuration or duplicate instruction tree is required. [Official instruction-discovery documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 
-Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The latest clarification is documentation-only and supersedes the previously planned window/tray rebuild. It does not authorize implementation, dependency/tool installation, CI changes, merge or removal of Draft status. Future implementation requires its own user order; these durable rules guide that work rather than authorizing it automatically.
+Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The window/tray clarification supersedes the previously planned rebuild. The user subsequently authorized package 1 only: process-free overlay recognition, focused tests, existing-document updates and a CI MSI testbuild. Window/tray, shutdown, Bungie pollers, manifest/history and notification changes remain outside that order. Keep CI unchanged and PR #1 open/Draft; no merge. Future packages require their own user order.
 
 ## Knowledge-base map
 

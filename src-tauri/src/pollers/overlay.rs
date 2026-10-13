@@ -1,153 +1,350 @@
-use std::{collections::HashMap, path::PathBuf};
-
-use raw_window_handle::{HasRawWindowHandle, RawWindowHandle};
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize};
-use widestring::Utf16String;
 use windows::Win32::{
-    Foundation::{CloseHandle, HWND, MAX_PATH, RECT},
-    System::{
-        ProcessStatus::K32GetModuleFileNameExW,
-        Threading::{OpenProcess, PROCESS_QUERY_INFORMATION},
-    },
+    Foundation::{HWND, RECT},
     UI::{
         Shell::SHQueryUserNotificationState,
-        WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId},
+        WindowsAndMessaging::{
+            GetClassNameW, GetForegroundWindow, GetWindowRect, GetWindowTextW, IsIconic,
+            IsWindowVisible,
+        },
     },
 };
 
-use crate::consts::{OVERLAY_POLL_INTERVAL, TARGET_NAME};
+use crate::consts::{OVERLAY_POLL_INTERVAL, TARGET_WINDOW_CLASS, TARGET_WINDOW_TITLE};
 
-enum PollResult {
-    Open(HWND),
-    Closed,
-    Retain,
+// Reject failed/truncated reads instead of accepting a partial title or class.
+fn matches_text(buffer: &[u16], length: i32, expected: &str) -> bool {
+    length > 0
+        && (length as usize) < buffer.len().saturating_sub(1)
+        && buffer[..length as usize]
+            .iter()
+            .copied()
+            .eq(expected.encode_utf16())
 }
 
+fn is_visible_target(hwnd: HWND) -> bool {
+    if hwnd.0 == 0
+        || !unsafe { IsWindowVisible(hwnd) }.as_bool()
+        || unsafe { IsIconic(hwnd) }.as_bool()
+    {
+        return false;
+    }
+
+    // Class first: do not query unrelated window captions (including our own
+    // webviews). These fixed buffers never allocate or retain HWND identities.
+    let mut class = [0u16; 64];
+    let length = unsafe { GetClassNameW(hwnd, &mut class) };
+    if !matches_text(&class, length, TARGET_WINDOW_CLASS) {
+        return false;
+    }
+
+    let mut title = [0u16; 64];
+    let length = unsafe { GetWindowTextW(hwnd, &mut title) };
+    matches_text(&title, length, TARGET_WINDOW_TITLE)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Bounds {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+impl Bounds {
+    fn from_rect(rect: RECT) -> Option<Self> {
+        let width = rect.right.checked_sub(rect.left)?;
+        let height = rect.bottom.checked_sub(rect.top)?;
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+        Some(Self {
+            x: rect.left,
+            y: rect.top,
+            width: width as u32,
+            height: height as u32,
+        })
+    }
+}
+
+// Showing the existing overlay can make it foreground. Preserve that case,
+// but treat the previous HWND only as a candidate: all metadata is read again.
+fn target_window(foreground: HWND, overlay: HWND, previous: Option<HWND>) -> Option<HWND> {
+    if foreground.0 == 0 {
+        None
+    } else if foreground == overlay {
+        previous
+    } else {
+        Some(foreground)
+    }
+}
+
+fn foreground_target(overlay: HWND, previous: Option<HWND>) -> Option<(HWND, Bounds)> {
+    match unsafe { SHQueryUserNotificationState() } {
+        Ok(state) if state.0 != 3 => (),
+        // Preserve the exclusive-fullscreen guard; uncertainty hides the overlay.
+        _ => return None,
+    }
+
+    let foreground = unsafe { GetForegroundWindow() };
+    let hwnd = target_window(foreground, overlay, previous)?;
+    if !is_visible_target(hwnd) {
+        return None;
+    }
+    let mut rect = RECT::default();
+    if !unsafe { GetWindowRect(hwnd, &mut rect) }.as_bool() {
+        return None;
+    }
+    let bounds = Bounds::from_rect(rect)?;
+    if unsafe { GetForegroundWindow() } != foreground {
+        return None;
+    }
+    Some((hwnd, bounds))
+}
+
+// Remember only successfully applied geometry, never a window's identity.
+// A failed/absent target clears this bounded state so re-entry retries fully.
 #[derive(Default)]
-struct Poller {
-    hwnd_names: HashMap<isize, String>,
+struct Placement {
+    applied: Option<Bounds>,
 }
 
-impl Poller {
-    async fn poll(&mut self, overlay_hwnd: isize) -> PollResult {
-        let notification_state = unsafe { SHQueryUserNotificationState() };
-
-        match notification_state {
-            Ok(n) if n.0 == 3 => return PollResult::Closed, // If in DX exclusive fullscreen mode
-            _ => (),
-        }
-
-        let foreground_hwnd = unsafe { GetForegroundWindow() };
-
-        if overlay_hwnd == foreground_hwnd.0 {
-            return PollResult::Retain;
-        }
-
-        let focused_name = match self.hwnd_names.get(&foreground_hwnd.0) {
-            Some(n) => n,
-            None => match get_hwnd_exec(foreground_hwnd) {
-                Some(n) => {
-                    self.hwnd_names.insert(foreground_hwnd.0, n);
-                    self.hwnd_names.get(&foreground_hwnd.0).unwrap()
-                }
-                None => return PollResult::Closed,
-            },
+impl Placement {
+    fn update(
+        &mut self,
+        target: Option<Bounds>,
+        apply: impl FnOnce(Bounds, bool, bool) -> bool,
+    ) -> bool {
+        let bounds = match target {
+            Some(bounds) => bounds,
+            None => {
+                self.applied = None;
+                return false;
+            }
         };
+        let position_changed = self
+            .applied
+            .map_or(true, |old| (old.x, old.y) != (bounds.x, bounds.y));
+        let size_changed = self
+            .applied
+            .map_or(true, |old| (old.width, old.height) != (bounds.width, bounds.height));
 
-        if focused_name == TARGET_NAME {
-            PollResult::Open(foreground_hwnd)
-        } else {
-            PollResult::Closed
+        if (position_changed || size_changed) && !apply(bounds, position_changed, size_changed) {
+            self.applied = None;
+            return false;
         }
+        self.applied = Some(bounds);
+        true
     }
-}
-
-fn get_hwnd_exec(hwnd: HWND) -> Option<String> {
-    if hwnd.0 == 0 {
-        return None;
-    }
-
-    let mut process_id = 0;
-
-    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut process_id)) };
-
-    if process_id == 0 {
-        return None;
-    }
-
-    let handle_res = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION, false, process_id) };
-
-    let h = match handle_res {
-        Ok(h) => h,
-        Err(_) => return None,
-    };
-
-    let mut buf: [u16; MAX_PATH as usize] = [0; MAX_PATH as usize];
-
-    let path_length = unsafe { K32GetModuleFileNameExW(h, None, &mut buf) };
-    // OpenProcess transfers ownership of this handle to us, even if lookup fails.
-    unsafe { let _ = CloseHandle(h); }
-    if path_length == 0 {
-        return None;
-    }
-
-    let mut path_string = Utf16String::from_slice_lossy(&buf).to_string();
-    path_string.retain(|c| c != '\0');
-
-    let path = PathBuf::from(path_string);
-
-    return path.file_name().map(|s| s.to_string_lossy().into_owned());
 }
 
 pub async fn overlay_poller(handle: AppHandle) {
-    let mut poller = Poller::default();
+    let mut placement = Placement::default();
+    let mut previous_target = None;
 
     loop {
-        let (overlay, overlay_hwnd) = {
-            let overlay = match handle.get_window("overlay") {
-                Some(h) => h,
-                None => return,
-            };
-
-            match overlay.raw_window_handle() {
-                RawWindowHandle::Win32(h) => {
-                    let hwnd = h.hwnd as isize;
-                    if hwnd == 0 {
-                        return;
-                    }
-
-                    (overlay, hwnd)
-                }
-                _ => return,
-            }
+        let overlay = match handle.get_window("overlay") {
+            Some(overlay) => overlay,
+            None => return,
         };
-
-        match poller.poll(overlay_hwnd).await {
-            PollResult::Open(hwnd) => {
-                let mut dims = RECT::default();
-
-                let valid_rect = unsafe { GetWindowRect(hwnd, &mut dims) }.as_bool()
-                    && dims.right > dims.left && dims.bottom > dims.top;
-                if valid_rect {
-                    // A window can disappear or change during any of these calls.
-                    // Retry next tick instead of panicking and killing this poller.
-                    let positioned = overlay.set_position(PhysicalPosition {
-                        x: dims.left,
-                        y: dims.top,
-                    }).is_ok();
-                    let sized = positioned && overlay.set_size(PhysicalSize {
-                        width: dims.right - dims.left,
-                        height: dims.bottom - dims.top,
-                    }).is_ok();
-                    if sized {
-                        let _ = overlay.emit("show", ());
-                    }
-                }
+        // This is our own window handle, never a process handle or PID.
+        let overlay_hwnd = overlay.hwnd().ok().map(|hwnd| HWND(hwnd.0));
+        let target = overlay_hwnd.and_then(|hwnd| foreground_target(hwnd, previous_target));
+        let placed = placement.update(target.map(|(_, bounds)| bounds), |bounds, position, size| {
+            if position
+                && overlay
+                    .set_position(PhysicalPosition {
+                        x: bounds.x,
+                        y: bounds.y,
+                    })
+                    .is_err()
+            {
+                return false;
             }
-            PollResult::Closed => { let _ = overlay.emit("hide", ()); },
-            PollResult::Retain => (),
+            if size
+                && overlay
+                    .set_size(PhysicalSize {
+                        width: bounds.width,
+                        height: bounds.height,
+                    })
+                    .is_err()
+            {
+                return false;
+            }
+            true
+        });
+
+        // Focus or window lifetime can change during placement. A previous HWND
+        // never proves identity; validate it again even when our overlay has focus.
+        let show = placed
+            && target.map_or(false, |(hwnd, _)| {
+                overlay_hwnd.and_then(|overlay| {
+                    target_window(unsafe { GetForegroundWindow() }, overlay, Some(hwnd))
+                }) == Some(hwnd)
+                    && is_visible_target(hwnd)
+            });
+        previous_target = if show {
+            target.map(|(hwnd, _)| hwnd)
+        } else {
+            None
+        };
+        if !show {
+            placement.applied = None;
         }
+        // Keep event retries: the frontend serializes visibility operations and
+        // skips redundant work, but needs later events to recover from failures.
+        let _ = overlay.emit(if show { "show" } else { "hide" }, ());
 
         tokio::time::sleep(OVERLAY_POLL_INTERVAL).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn matches(value: &str, expected: &str) -> bool {
+        let mut buffer = [0u16; 64];
+        let value: Vec<_> = value.encode_utf16().collect();
+        buffer[..value.len()].copy_from_slice(&value);
+        matches_text(&buffer, value.len() as i32, expected)
+    }
+
+    fn bounds() -> Bounds {
+        Bounds {
+            x: 0,
+            y: 0,
+            width: 2560,
+            height: 1440,
+        }
+    }
+
+    #[test]
+    fn observed_game_metadata_matches_but_input_window_does_not() {
+        assert!(matches("Destiny 2", TARGET_WINDOW_TITLE));
+        assert!(matches("Tiger D3D Window", TARGET_WINDOW_CLASS));
+        assert!(!matches("Tiger Input Window", TARGET_WINDOW_CLASS));
+        assert!(!matches("Chrome_WidgetWin_1", TARGET_WINDOW_CLASS));
+    }
+
+    #[test]
+    fn unrelated_or_partial_titles_are_rejected() {
+        for title in [
+            "",
+            "Destiny",
+            "Destiny 2 - Browser",
+            "Destiny 20",
+            "Other Game",
+        ] {
+            assert!(!matches(title, TARGET_WINDOW_TITLE), "{title}");
+        }
+    }
+
+    #[test]
+    fn failed_truncated_and_invalid_text_reads_are_rejected() {
+        let buffer = [b'D' as u16, b'2' as u16, 0];
+        for length in [-1, 0, 2, 3, 100] {
+            assert!(!matches_text(&buffer, length, "D2"));
+        }
+        assert!(!matches_text(&[], 1, "D2"));
+        assert!(!matches_text(&[0xd800, 0, 0], 1, "D2"));
+    }
+
+    #[test]
+    fn overlay_focus_requires_a_previous_candidate_and_other_focus_replaces_it() {
+        let game = HWND(1);
+        let overlay = HWND(2);
+        let other = HWND(3);
+        assert_eq!(target_window(game, overlay, None), Some(game));
+        assert_eq!(target_window(overlay, overlay, Some(game)), Some(game));
+        assert_eq!(target_window(overlay, overlay, None), None);
+        assert_eq!(target_window(other, overlay, Some(game)), Some(other));
+        assert_eq!(target_window(HWND(0), overlay, Some(game)), None);
+    }
+
+    #[test]
+    fn physical_geometry_preserves_negative_monitor_coordinates() {
+        assert_eq!(
+            Bounds::from_rect(RECT {
+                left: -2560,
+                top: -120,
+                right: 0,
+                bottom: 1320,
+            }),
+            Some(Bounds {
+                x: -2560,
+                y: -120,
+                ..bounds()
+            })
+        );
+    }
+
+    #[test]
+    fn empty_inverted_and_overflowing_geometry_is_rejected() {
+        for rect in [
+            RECT::default(),
+            RECT {
+                left: 2,
+                top: 0,
+                right: 1,
+                bottom: 10,
+            },
+            RECT {
+                left: 0,
+                top: 2,
+                right: 10,
+                bottom: 1,
+            },
+            RECT {
+                left: i32::MIN,
+                top: 0,
+                right: i32::MAX,
+                bottom: 10,
+            },
+        ] {
+            assert_eq!(Bounds::from_rect(rect), None);
+        }
+    }
+
+    #[test]
+    fn unchanged_geometry_does_not_update_the_window() {
+        let mut placement = Placement::default();
+        assert!(placement.update(Some(bounds()), |_, position, size| position && size));
+        assert!(placement.update(Some(bounds()), |_, _, _| panic!("redundant update")));
+    }
+
+    #[test]
+    fn movement_and_resize_only_update_the_changed_dimension() {
+        let mut placement = Placement::default();
+        assert!(placement.update(Some(bounds()), |_, _, _| true));
+        let moved = Bounds {
+            x: -2560,
+            ..bounds()
+        };
+        assert!(placement.update(Some(moved), |_, position, size| position && !size));
+        let resized = Bounds {
+            width: 1920,
+            ..moved
+        };
+        assert!(placement.update(Some(resized), |_, position, size| !position && size));
+    }
+
+    #[test]
+    fn lost_target_hides_and_reentry_reapplies_geometry() {
+        let mut placement = Placement::default();
+        assert!(placement.update(Some(bounds()), |_, _, _| true));
+        assert!(!placement.update(None, |_, _, _| panic!("missing target")));
+        assert_eq!(placement.applied, None);
+        assert!(placement.update(Some(bounds()), |_, position, size| position && size));
+    }
+
+    #[test]
+    fn failed_placement_hides_and_retries_in_full() {
+        let mut placement = Placement::default();
+        assert!(placement.update(Some(bounds()), |_, _, _| true));
+        let moved = Bounds { x: 1, ..bounds() };
+        assert!(!placement.update(Some(moved), |_, _, _| false));
+        assert_eq!(placement.applied, None);
+        assert!(placement.update(Some(moved), |_, position, size| position && size));
     }
 }
