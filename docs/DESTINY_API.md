@@ -6,7 +6,7 @@ Implemented baseline: 1.1.4; audited 2026-10-11. Source: `src-tauri/src/api.rs`,
 
 Activity data must come from Bungie web/API/manifest sources only. No Destiny process access/inspection, memory read/write, DLL/code injection, game/DirectX/RTSS-style hooks, input hooks/automation or game-file modification. Unsupported features must stay unsupported rather than bypass this boundary.
 
-The inherited overlay process-name query is a documented unresolved conflict, not an exception. Close-to-tray is not proof of compliance with no-work-while-closed. [PROJECT_CONTEXT](PROJECT_CONTEXT.md) owns those findings and the required lifecycle boundary.
+The inherited overlay process-name query is a documented unresolved conflict, not an exception. Ordinary Windows window queries without direct process access are allowed for the separate overlay, not as a source of gameplay state. Intentional tray operation keeps tracking active; full tray Exit must stop app work. [PROJECT_CONTEXT](PROJECT_CONTEXT.md) owns the findings and binding lifecycle contract.
 
 ## Current endpoints and request budget
 
@@ -65,4 +65,6 @@ Bungie errors expose `ThrottleSeconds`, but callers currently keep their fixed r
 
 ## Rules for endpoint changes
 
-Document purpose, call frequency, caching, privacy/failure fallback, total request impact and why the endpoint stays within the safety boundary. Diagnose API freshness, request duration, metadata/locks, state acceptance and UI separately. Keep status/optional/history paths independently cancellable within app lifetime; no service or work after closure.
+Document purpose, call frequency, caching, privacy/failure fallback, total request impact and why the endpoint stays within the safety boundary. Diagnose the complete API → retrieval → processing → state → overlay chain: Bungie freshness, request duration, metadata/locks, state acceptance and UI separately. Improve speed beyond original through bounded parallelism, deduplication and cache reuse; do not assume more requests produce fresher server data. Include startup/retry/page traffic, not only steady-state polling, in before/after budgets.
+
+Keep status/optional/history paths cancellable within app lifetime, including initialization, sleeps, lock waits and one-off IPC profile/search/metadata requests. Hiding/minimizing main UI must not duplicate or restart these paths. Full Exit must prevent new requests and cancel in-flight app futures without waiting for the 15-second timeout; an already sent request cannot be recalled from Bungie's server. No service or custom work after completed exit. These are requirements; central shutdown coordination is not yet implemented.

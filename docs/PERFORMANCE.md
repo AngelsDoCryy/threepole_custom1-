@@ -1,6 +1,8 @@
 # Threepole Custom — Performance
 
-Audited baseline: 1.1.4, 2026-10-11. Preserve original Threepole's startup speed, low overhead and responsiveness while adding independent optional features. Performance parity is a target, not a completed benchmark.
+Audited runtime baseline: 1.1.4, 2026-10-11; development goals aligned 2026-10-13. **Target: measurably exceed original Threepole's speed and responsiveness at preferably equal or lower resource use**, retaining all Custom features. Original 1.1.2 is the permanent technical baseline and minimum standard, not the final goal. Neither a speed advantage nor resource parity/savings has yet been established by a comparable benchmark.
+
+Prioritize first activity detection, activity changes, orbit/timer stop, repeated same-activity restarts, timely clears/notifications, recognized-clear-to-overlay delay and cold/warm startup. Optimize the full Bungie API → retrieval → processing → state → overlay chain. Prefer bounded parallelism, cache reuse, efficient updates and removal of local blocking; more polling, substantially higher system load or riskier game access are not acceptable shortcuts. PROJECT_CONTEXT defines priorities and prior user approval for even a small resource tradeoff.
 
 ## Earlier user observations — still require live validation
 
@@ -22,13 +24,15 @@ On an older build, the first Dungeon was recognized after about 30 seconds, whil
 | Overlay | Serialized/retryable show/hide, listener-before-snapshot initialization, stopped hidden/disabled timer interval | Details window retains a separate 30 Hz interval; actual CPU/memory not benchmarked |
 | Windows handles | CloseHandle after foreground executable lookup, including lookup failure | Fixing the leak does not make process access compliant with the safety requirement |
 
-No new independent background service was introduced. Current UI close nevertheless leaves tray/polling active; this is a lifecycle conflict, not an optimization or accepted exception. See [PROJECT_CONTEXT](PROJECT_CONTEXT.md).
+No new independent background service was introduced. Intentional tray operation with continued tracking/overlay is now required, but current X destroys the UI instead of hiding it and complete orderly shutdown remains unimplemented/unverified. See [PROJECT_CONTEXT](PROJECT_CONTEXT.md) for the binding action table and current exit semantics.
 
 ## Confirmed bottlenecks and unmeasured risks
 
 Confirmed from code: initial history gates first usable data; manifest errors return before committing activity changes; successful empty-name definitions stay cached. Shared source locks span metadata network waits. These local paths deserve focused fixes even before the old restart complaint is reproduced.
 
 Further measurement targets: repeated full daily-history pagination, detail-window metadata contention, full player-data/history cloning and event payloads, synchronous cache writes, cache invalidation/size, foreground handle reuse, details-window timer activity, and stale-data/error presentation. Their existence is observable in code; their real performance cost has not been measured. Do not present them as the proven cause of the historical 2–3 minute delay.
+
+The foreground HWND/name cache is unbounded and does not invalidate reused handles; it must not survive as a substitute for the forbidden process query. Overlay geometry is reapplied every 200 ms even when unchanged, and invalid geometry does not explicitly hide a previously visible overlay. Hidden popup queues have no bound; name-hide and existing popup timeouts remain scheduled. Details uses a 30 Hz timer plus a 30-second age refresh without an explicit visibility pause. Their cost needs measurement; they do not justify changing notification semantics silently. Retaining a hidden main webview may improve restore speed while retaining more RAM than today's destroyed window; measure and present that tradeoff before implementation.
 
 The overlay's milliseconds option changes drawing frequency from about 2 Hz to 30 Hz; it does not change API polling. Name/auto-hide, counters, notifications and local icons must not add requests or materially increase overhead.
 
@@ -44,6 +48,14 @@ If code-level tests do not explain remaining latency, add low-overhead, opt-in d
 
 Separate Bungie data age from local request, lock, state and rendering delay. Record request counts and cold/warm CPU, memory and handle behavior before and after fixes. Do not infer affinity/backend routing causes from timing alone.
 
+## Permanent original-versus-Custom comparison method
+
+Use identifiable original and Custom builds under matching Windows, hardware, game/display, activity, profile and feature settings. Compare shared features on equal settings and separately report the cost of Custom-only options. Prefer repeated alternating runs rather than concurrent apps; if concurrent, disclose extra API/load effects. Record cache state, test order, trial count and long-session duration; no arbitrary speed threshold is claimed without a baseline.
+
+Measure startup/loading and each detection/display stage, CPU averages and short peaks, app plus owned-WebView RAM and growth over time, network bytes/API counts, UI/timer work and recovery. Include visible, minimized and tray states, long sessions and repeated Dungeon **and Raid** restarts. Report typical and slow-tail latency (for example median/p95 when sample count supports it), variability and failures, not only the best run. Separate game action → available Bungie data from available response → accepted state → visible overlay; without enough timestamps, label the missing interval unknown rather than assigning it to Bungie or local code.
+
+Assess Destiny FPS, frametimes and microstutter with user observations or already permitted measurement sources. Measurement itself must not introduce direct Destiny process access, injection, game/input hooks, extra services or unapproved tools. If safe frametime evidence is unavailable, explicitly leave that criterion unverified. Distinguish code-level expectations, automated/mock results and practical Windows/Destiny measurements; never promote one into the other.
+
 ## Repeatable validation matrix — all live acceptance remains open
 
 Record tested commit/MSI, Windows/display mode, profile/character count, settings, cache cold/warm state and repeated-trial results. Compare original and custom using the same activities/conditions, identifying concurrent-app API load if both run together.
@@ -54,6 +66,7 @@ Record tested commit/MSI, Windows/display mode, profile/character count, setting
 | First Raid/Dungeon entry | Identity detection separately from start-time/timer adoption |
 | Orbit return | 204 freshness, accepted hash 0, timer/name/counter hide latency, optional-state discard |
 | Immediate same-Dungeon restart x3 | New start/name reappearance; no 2–3 minute local stall; distinguish API delay |
+| Repeated Raid restarts and long sessions | Same-run identity correctness, stable CPU/RAM/cache/queue sizes, no accumulated pollers/listeners, FPS/frametime/microstutter observations versus original |
 | Switch to another activity/variant | Correct identity, separate per-hash clear count, no stale metadata/timing carryover |
 | Late join / character or profile switch | Conservative timing association, correct character selection, no old task/state/notification leak |
 | Clear before orbit / after next run | Notification and counter update without stopping the active/new run |
@@ -63,7 +76,7 @@ Record tested commit/MSI, Windows/display mode, profile/character count, setting
 | Slow/failed history, manifest, offline/recovery, throttling | Partial readiness, bounded retries, recovery, visible stale/error state; use mocked failures where live reproduction is impractical |
 | Empty/corrupt cache; unknown activity | Conservative classification and later enrichment, no request storm |
 | Settings and overlay focus | Independent timer/name/auto-hide/counter/notifications; milliseconds on/off; hide/show, alt-tab, resize and fullscreen behavior |
-| Windows lifecycle | UI close versus deliberate tray operation, overlay disabled, profile reset, actual Exit; no remaining app-owned work/requests after close |
+| Windows lifecycle | Main X hides to tray; – minimizes to taskbar; double-click restores/focuses; auxiliary X closes only itself; tracking/overlay continue while UI work pauses; actual Exit during startup/HTTP/profile changes stops all app-owned work, releases pipe/windows and permits restart |
 | Installation/icons | MSI install/upgrade, custom/original separation, updater disabled, Eager Edge app/tray/installer/popup/clear surfaces |
 
 There is no OAuth flow to time as a login: measure profile loading. Exclusive fullscreen currently hides the separate overlay; do not propose game hooks to change that.

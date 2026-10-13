@@ -38,9 +38,9 @@ Documentation alignment: 2026-10-11. Sections below describe shipped history; cu
 - Independent Display timer option in the separate Custom features settings group.
 
 ## Safety model
-Required: API-/web-/manifest-only, no direct Destiny process access, memory read/write, injection, game/input hooks, gameplay automation, game-file edits or independent background service. No work while Threepole is closed.
+Required: official Bungie API/web/manifest activity data and ordinary process-free Windows window queries for the separate overlay. No direct Destiny process access, memory read/write, injection, game/input hooks, gameplay automation, game-file edits, anti-cheat manipulation or independent background service. No app work after full exit; intentional tray operation is a running state.
 
-Current activity data uses Bungie API/manifest sources. However, inherited overlay visibility uses `OpenProcess` and executable-name inspection, and window close currently leaves the app/polling running in the tray until Exit. These are unresolved conflicts, not approved exceptions. No gameplay-memory reader or injection was found. Details and the safety gate are in [PROJECT_CONTEXT](docs/PROJECT_CONTEXT.md) and [ROADMAP](docs/ROADMAP.md).
+Current activity data uses Bungie API/manifest sources. Inherited `OpenProcess`/executable-name inspection remains a safety conflict. X currently destroys the UI while polling continues; tray activation is single-click and Exit directly terminates the process without coordinated app cleanup. The newly agreed hide/minimize/double-click/full-exit behavior is a pending target, not part of the shipped version history above. No gameplay-memory reader or injection was found. [PROJECT_CONTEXT](docs/PROJECT_CONTEXT.md) owns the binding behavior and permanent goal of measured improvement beyond original; [ROADMAP](docs/ROADMAP.md) owns the safety gate awaiting separate implementation approval.
 
 ## Current gaps and validation
 

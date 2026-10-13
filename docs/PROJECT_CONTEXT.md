@@ -1,6 +1,6 @@
 # Threepole Custom — Project Context
 
-This file owns the durable user decisions and workflow. Last alignment: 2026-10-11; implementation remains 1.1.4. Implemented behavior, unresolved conflicts and required future behavior must not be conflated.
+This file owns the durable user decisions and workflow. Last alignment: 2026-10-13; implementation remains 1.1.4. Implemented behavior, unresolved conflicts and required future behavior must not be conflated.
 
 ## Project identity
 
@@ -11,21 +11,23 @@ This file owns the durable user decisions and workflow. Last alignment: 2026-10-
 - Current draft PR: #1 — `Improve custom overlay tracking and orbit responsiveness`
 - Current custom version documented by the active work: 1.1.4
 
-The project exists to keep the original Threepole experience lightweight and responsive while adding optional Destiny 2 overlay and tracking features useful for speedruns.
+The permanent goal is to make Threepole Custom **measurably faster, more reliable and richer in useful features than original Threepole**, with preferably equal or lower CPU, RAM and network use and without additional or riskier interaction with Destiny 2. Original Threepole 1.1.2 is the permanent technical comparison baseline and minimum standard, not the final performance goal. Earlier “close to original” or parity-only targets are superseded; a measured advantage is not yet established.
 
 ## Core priorities
 
 In order of importance:
 
-1. Destiny/Bungie safety: custom logic must remain API-/web-/manifest-only.
-2. Responsiveness: startup, activity changes, orbit detection and timer state should feel at least as fast as original Threepole where local code controls the result.
-3. Low overhead: avoid unnecessary network, manifest, CPU, background or UI work.
-4. Optional features: custom functionality should be independently configurable instead of tightly coupled.
-5. Maintainability: future ChatGPT, Work and Codex sessions should be able to understand the current architecture without relying on old chat history.
+1. Safety and Destiny account protection.
+2. Reliability and correct function.
+3. Measurably higher speed than original Threepole.
+4. Preferably equal or lower resource consumption.
+5. Additional convenience features.
+
+Speed and resource use must improve together: use efficient architecture, bounded parallel work, caching and removal of local delays rather than substantially higher system load or excessive requests. A small resource increase may be acceptable only for a relevant, measurable benefit without compromising safety or game performance; explain the tradeoff and obtain the user's decision beforehand. Significantly higher resource use is not an acceptable acceleration strategy. Maintainability and preservation of existing independent features apply throughout.
 
 ## Non-negotiable safety constraints
 
-The custom project must not add:
+Activity data must come exclusively from official Bungie APIs and provided web/manifest data. The overlay remains an independent Windows window. Ordinary Windows queries for window focus, title/class or geometry are allowed when they do not access the Destiny process directly. The custom project must not add:
 
 - Destiny 2 process injection
 - DLL or code injection
@@ -34,17 +36,34 @@ The custom project must not add:
 - DirectX/game-overlay injection comparable to RTSS-style hooking
 - input hooks or gameplay automation
 - edits to Destiny 2 game files
+- anti-cheat bypass or manipulation, or other risky game-state detection
 - unrelated persistent services or background processes
 
-When Threepole exits, custom polling/tasks must stop. Bungie API request volume should remain conservative and measurable.
+When Threepole fully exits, all its polling/tasks and resources must stop. Intentional tray operation is a running state as defined below. Bungie API request volume should remain conservative and measurable. Speed never justifies riskier game interaction. No absolute account-safety guarantee is technically possible; document the remaining limits and offer a safe alternative if a feature cannot meet this boundary.
 
-### Current implementation conflicts — not approved exceptions
+### Current safety and lifecycle findings — not approved exceptions
 
 `src-tauri/src/pollers/overlay.rs::get_hwnd_exec` uses `OpenProcess(PROCESS_QUERY_INFORMATION)` and `K32GetModuleFileNameExW` to compare the foreground executable name with `destiny2.exe`. This predates the current PR's fixes; the PR closes the acquired handle. It is not an activity-memory reader, injection or input hook, but it **is direct process access**, so the current implementation cannot be described as fully meeting the boundary above. Review and replace the mechanism within the boundary; do not weaken the requirement by changing its wording.
 
-`src/window/window.ts` closes the UI window, while `src-tauri/src/main.rs` prevents ordinary application exit and exposes tray **Exit**. Thus window close currently leaves polling active in the tray. Actual Exit ends the app; there is no separate polling service in the inspected source. Runtime verification that requests and app-owned processes cease after Exit is still pending. Disabling the overlay also does not disable player-data polling.
+`src/window/window.ts` currently calls `close()` for every X and `minimize()` for –. `main.rs` prevents ordinary application exit; the tray uses **single** left-click activation. Existing windows are unminimized/focused without an explicit show call. The primary window is `details`, or `profiles` before profile selection; preferences and normally profile management are auxiliary. X destroys that webview while player-data/overlay work continues; it does not yet implement the agreed hide/restore contract. Disabling the overlay closes its window and aborts its poller, not player-data polling.
 
-The user's requirement is no work while Threepole is closed. Window-close-to-tray must not be silently accepted as satisfying that requirement. ROADMAP requires explicit product semantics: application close should stop app work; any retained tray operation must be visibly an intentional running state, not an invisible substitute for closing. The existing behavior is documented, not authorized as an exception.
+Tray Exit calls `AppHandle::exit(0)`. In the pinned [Tauri 1.2.4 implementation](https://github.com/tauri-apps/tauri/blob/tauri-v1.2.4/core/tauri/src/app.rs), this performs framework cleanup then `std::process::exit`; the ordinary `ExitRequested` prevention does not block that direct exit. There is no separate polling service in the inspected source and no evidence that Rust pollers survive successful process termination. What is missing is coordinated cancellation/cleanup and Windows evidence for all app-owned resources, including WebView2 helpers; do not misreport that gap as a demonstrated post-exit polling leak.
+
+Player-data reset and overlay replacement abort stored handles without awaiting completion. Startup, tray activation and named-pipe tasks are spawned without retained handles; one-off profile/search/metadata IPC requests are outside the player-data task. There is no central stopping state preventing new work. These are the lifecycle coverage gaps addressed by ROADMAP, not an instruction to add a background supervisor.
+
+### Binding window and tray behavior — decided, not implemented
+
+The user's explicit decision supersedes the earlier unresolved close-to-tray wording:
+
+| Action | Required behavior |
+| --- | --- |
+| X in main window | Hide into Windows system tray, without a taskbar window; tracking and overlay continue |
+| – in main window | Normal minimize into the Windows taskbar |
+| Tray double-click | Show, restore and focus the main window |
+| X in settings/profile management | Close only that auxiliary window |
+| Tray → Exit / Beenden | Fully end the app, polling, in-flight HTTP work, timers, windows and all other app-owned resources |
+
+Tray operation is intentionally running, not “closed.” Pause unnecessary rendering in hidden/minimized UI while preserving tracking and overlay behavior. Add no unnecessary process, service, autostart, timer or poller. Window roles must account for the initial profile screen; do not silently treat a startup primary window as an auxiliary one. The complete behavior requires a separate implementation order and Windows acceptance tests.
 
 ### Icon decision
 
@@ -62,7 +81,7 @@ Codex is now the central workspace for development, debugging, tests, performanc
 
 Start sessions inside the correct repository checkout and follow root AGENTS.md. It explicitly routes future sessions to the existing knowledge files. Those linked documents still need to be read; automatic instruction discovery does not automatically include all of `docs/`. Keep AGENTS concise, preserve its location and inspect any applicable override before work. No extra global configuration or duplicate instruction tree is required. [Official instruction-discovery documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 
-Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The 2026-10-11 cleanup is documentation-only. Environment inspection is allowed, installation of additional programs/background services is not part of that assignment.
+Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The 2026-10-13 order authorizes necessary existing-document changes and a commit/push on the active branch only. It does not authorize implementation of work package 1, dependency/tool installation, CI changes, merge or removal of Draft status. Future implementation requires its own user order; these durable rules guide that work rather than authorizing it automatically.
 
 ## Knowledge-base map
 
@@ -111,3 +130,5 @@ Before changing timing or polling behavior, distinguish between:
 - optional timing-source behavior.
 
 Do not increase polling frequency as the default response to an unverified delay.
+
+For every development change: inspect the current code, choose a simple maintainable solution, assess correctness/speed and resource/API impact across the full API → retrieval → processing → state → overlay chain, preserve Custom features/settings, add suitable regression coverage, check related components and update the owning knowledge files. Compare with original where feasible using PERFORMANCE's method; explicitly label technical expectations and missing Windows/Destiny evidence. Reassess existing features with known defects without presenting them as complete or permitting accidental removal.

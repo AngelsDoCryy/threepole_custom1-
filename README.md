@@ -17,7 +17,9 @@ Start Codex sessions with [`AGENTS.md`](AGENTS.md). Durable context from ChatGPT
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — current priorities, open validation and future work
 - [`docs/CODEX_HANDOFF.md`](docs/CODEX_HANDOFF.md) — detailed handoff from prior ChatGPT and Work development sessions
 
-Documentation aligned 2026-10-11 against **1.1.4**; this cleanup implements no fixes. CODEX_HANDOFF records the audited commit and successful build #19. Codex handles natural-language development orders, tests and Windows MSI delivery; GitHub holds durable history. See [`BUILD-GITHUB-DE.md`](BUILD-GITHUB-DE.md) for the minimal local environment and existing CI build path.
+Development rules aligned 2026-10-13; runtime remains **1.1.4**. CODEX_HANDOFF records commit/build evidence, including successful build #20. Codex handles natural-language development orders, tests and Windows MSI delivery; GitHub holds durable history. See [`BUILD-GITHUB-DE.md`](BUILD-GITHUB-DE.md) for the minimal local environment and existing CI build path.
+
+**Permanent goal:** measurably faster, more reliable and richer than original Threepole, at preferably equal or lower resource use and without additional/riskier Destiny interaction. Original is the comparison baseline and minimum standard, not the final target. A measured advantage is not established yet; PROJECT_CONTEXT owns the rules and PERFORMANCE the benchmark method. This documentation-only update does not authorize implementation.
 
 ---
 
@@ -84,9 +86,9 @@ The original Threepole automatic updater is disabled in this build to prevent of
 
 ## Safety / Destiny interaction
 
-The required design is API-/web-/manifest-only, with no direct Destiny process access, hooks or activity after application closure. These requirements have no implicit legacy exceptions.
+Activity data must use official Bungie API/web/manifest sources; ordinary Windows window queries without direct process access are allowed for the separate overlay. No game-process access, injection/hooks, anti-cheat manipulation or app work after full exit is permitted. These requirements have no implicit legacy exceptions.
 
-Activity data comes from Bungie; no gameplay-memory reader, injection, input/gameplay automation or game-file modification was found. **Unresolved conflicts:** inherited overlay visibility opens a process to identify `destiny2.exe`, and window close leaves tray/polling active until Exit. No separate polling service was found. [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) records the strict requirements; safety/lifecycle review and Windows shutdown validation remain open.
+Activity data comes from Bungie; no gameplay-memory reader, injection, input/gameplay automation or game-file modification was found. **Open safety gap:** inherited overlay visibility opens a process to identify `destiny2.exe`. No separate polling service was found. The binding window/tray contract preserves tracking/overlay during intentional tray operation and requires full shutdown through tray Exit. Current window/tray code and orderly cleanup still need changes; analysis is complete, implementation and Windows acceptance are pending. [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) owns the action table, current behavior and safety limits.
 
 ---
 

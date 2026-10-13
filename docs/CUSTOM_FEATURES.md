@@ -2,6 +2,8 @@
 
 Verified implementation: 1.1.4, audited on 2026-10-11. This file distinguishes shipped behavior from requirements and pending changes. Safety and lifecycle requirements are owned by [PROJECT_CONTEXT](PROJECT_CONTEXT.md); implementation work is ordered in [ROADMAP](ROADMAP.md).
 
+Permanent preservation rule, confirmed 2026-10-13: retain activity names/auto-hide, per-activity daily clears, clear notifications, optional milliseconds and independent overlay settings; retain dynamic Raid/Dungeon classification, caches and API improvements, disabled updater, separate installation and required Eager Edge branding. Optimize these features without accidental removal or coupling. Existing notification/cache/icon gaps below remain open; this rule does not claim every target is already met.
+
 ## Activity name and independent settings — implemented
 
 The overlay displays the name of a recognized tracked activity (Raid, Dungeon, Strike or Lost Sector). It uses an instance key consisting of activity hash and selected start time, so a recognized new run of the same activity shows the name again.
@@ -60,7 +62,7 @@ The 2026-10-11 takeover reproduced both cases in an isolated in-memory execution
 
 Custom app ID `sh.des.threepole.custom`, config directory `threepole-custom` and named pipe `threepole-custom-open` isolate the custom app. The automatic updater is disabled so official releases cannot overwrite it.
 
-**Current behavior:** UI close leaves the tray app and player-data polling running; disabling overlay closes its window/poller but not the player-data task. Tray Exit ends the application. **Required behavior:** no work when Threepole is closed, no independent background service; the close-to-tray ambiguity and process-name lookup are unresolved safety work, not approved exceptions. See PROJECT_CONTEXT.
+**Current behavior:** X destroys the UI window while the tray/player-data/overlay work continues; – minimizes normally; single tray click activates. Disabling overlay closes its window/poller but not the player-data task. Tray Exit directly terminates the process, without central task cancellation/cleanup coordination. The binding window/tray action table in PROJECT_CONTEXT is pending separate implementation. Tracking and overlay must continue in intentional tray operation while unnecessary hidden UI updates pause; full Exit must end all app-owned work/resources. The process-name lookup remains a separate safety conflict, not an approved exception.
 
 ## Deferred polish
 
