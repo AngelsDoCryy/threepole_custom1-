@@ -17,6 +17,14 @@ The local branch tracks `origin/threepole-custom-dev`; the repository URL and Gi
 
 The last implementation before the rename passed [Windows build #24](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/38478039050) on `a2e67ed`: 48 Rust tests, five frontend tests and MSI packaging. This is the retained pre-migration validation baseline, not a new live Destiny test.
 
+Migration completed at `42bd50c8f473d7c891e22efff8b2d04dc46945a0`; [Windows build #25](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/38484093088) succeeded on that commit (48 Rust tests, five frontend tests, MSI). Its [MSI artifact](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/38484093088/artifacts/11858899185) is the current analysis baseline. Local branch/upstream and open Draft PR #2 were rechecked at the same commit before this documentation update. Do not repeat the rename; package 1 still needs full Destiny live acceptance.
+
+## Activity/timer investigation — 2026-10-14
+
+The user authorizes analysis and existing-document commit/push only. PROJECT_CONTEXT now gives unaffected Destiny FPS, 1% lows, frametimes and input latency second priority immediately after account safety, ahead of correctness/display speed; no speed gain permits weakening either boundary. AGENTS routes subsequent sessions to this binding order. No new runtime or diagnostics implementation is authorized.
+
+Compared original 1.1.2 `773638cb47ce94d98c11fce141d0bb1a34917c69` with Custom 1.1.4 `42bd50c`; PERFORMANCE owns source differences and unmeasured live outcomes. DESTINY_API owns the confirmed metadata/initial-history gates, delayed consumption of optional timing, conditional multi-character/freshness risks and unused API mode/end-time fields. CUSTOM_FEATURES separates hidden-popup delivery and missed notifications from live timer ownership. Same-hash restart/fresh-orbit guards already exist; the historical multi-minute delay is not proved current or resolved. ROADMAP recommends separate manifest, initial-readiness and notification fixes, followed only by evidence-led timing changes. Never stop a new run because an older clear arrived. No application, dependency, CI, tray or shutdown change accompanies this documentation analysis.
+
 ## Knowledge ownership
 
 Follow root [AGENTS.md](../AGENTS.md). Read PROJECT_CONTEXT and ROADMAP at session start, then relevant specialist files; read all on a takeover. Check the actual checkout/PR/build before relying on this dated snapshot. Linked documents require explicit reading; old chats are not a substitute for recorded decisions.
@@ -53,7 +61,7 @@ The pre-package baseline [Windows build #22](https://github.com/AngelsDoCryy/thr
 
 [Windows build #20, 2026-10-12](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/38243304601) subsequently succeeded on `bb3f21f1877cb16f703888b9afb45493d28c4b8d`: 37 Rust tests, five overlay tests and `Threepole Custom_1.1.4_x64_en-US.msi` packaging. Its [MSI artifact](https://github.com/AngelsDoCryy/threepole_custom1-/actions/runs/38243304601/artifacts/11744142438) is build evidence, not a Windows/Destiny live test. This documentation update adds no runtime validation; its push can trigger the unchanged workflow, and any resulting run must be checked separately.
 
-Rust coverage: 19 timing-state, six parser, ten history/current-helper and two preference tests. Frontend: three visibility and two clear/orbit ordering tests. They cover backward/epoch orbit, earlier starts for another activity, optional fallback, orbit/re-entry, stale responses, standalone Transitory parsing and late-clear independence. They do not establish network scheduling, source-cache recovery, lock behavior, Windows lifecycle or live Bungie timing.
+Current Rust coverage: 19 timing-state, six parser, ten history/current-helper, two preference and eleven process-free overlay tests (48 total). Frontend: three visibility and two clear/orbit ordering tests. They cover backward/epoch orbit, earlier starts for another activity, optional fallback, orbit/re-entry, stale responses, standalone Transitory parsing and late-clear independence. They do not establish network scheduling, source-cache recovery, lock behavior, Windows lifecycle or live Bungie timing.
 
 CI installs dependencies, runs overlay tests, builds through Tauri/Vite, runs release Rust tests and uploads the MSI. There is no separate TypeScript/Svelte type check; the PR's earlier local type-check claim is historical. Toolchain details belong to BUILD-GITHUB-DE.
 

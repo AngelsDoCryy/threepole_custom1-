@@ -50,6 +50,8 @@ This documentation cleanup changes no image or HTML asset. Generic functional/pl
 
 Notifications are optional overlay popups, queued while the overlay is hidden. A clear may arrive before live orbit detection. Neither a clear nor a notification forces orbit or stops an ongoing/new run. Startup suppresses retrospective clear notifications.
 
+Rechecked on `42bd50c` (2026-10-14): `popups.ts` retains only rendered title/subtext in an unbounded hidden queue and flushes on show. A visible popup can therefore be older than its history arrival, including during a new run. The live timer has no completed/frozen state and continues from its accepted start while the activity remains recognized. This behavior is separate from the missed-notification defects below. DESTINY_API owns the history/current identity limits and the unused Transitory end-time opportunity; no timer-stop change is approved. A future notification fix should retain instance/profile identity until delivery and define bounded queue/expiry behavior with the user, without silently dropping requested notifications.
+
 Current `src/overlay/overlay.ts::refresh` examines only `activityHistory[0]` and remembers its instance ID even when incomplete. Consequently:
 
 - An initially incomplete record corrected to completed with the same ID gets **no notification**.

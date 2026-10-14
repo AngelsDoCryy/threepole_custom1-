@@ -4,7 +4,9 @@ Updated 2026-10-14: separately authorized package 1 (process-free overlay recogn
 
 Safety requirements are in [PROJECT_CONTEXT](PROJECT_CONTEXT.md), source-level API/cache findings in [DESTINY_API](DESTINY_API.md), notification behavior in [CUSTOM_FEATURES](CUSTOM_FEATURES.md), and the complete live matrix in [PERFORMANCE](PERFORMANCE.md). Do not duplicate those inventories here.
 
-Permanent direction: measurably exceed original Threepole's speed/reliability while retaining Custom features at preferably equal or lower resource cost. Apply the priority order safety → correctness → speed beyond original → low resource use → convenience. Each package must assess security, CPU/RAM, API/network volume, overlay latency/reliability and effects on existing settings/features. Technical expectations are not benchmark results; any proposed resource increase requires the user's prior decision. No acceleration through riskier game access, substantially greater system load or unjustified polling increases.
+Permanent direction: measurably exceed original Threepole's speed/reliability while retaining Custom features at preferably equal or lower resource cost. Apply the binding priority order safety → unaffected Destiny performance → correctness → speed beyond original → low resource use → convenience. Each package must assess security, CPU/GPU/RAM, API/network volume, overlay latency/reliability and effects on existing settings/features. Technical expectations are not benchmark results; any proposed resource increase requires the user's prior decision within the safety and game-performance constraints. No acceleration through riskier game access, relevant FPS/1%-low/frametime/input-latency regression, substantially greater system load or unjustified polling increases.
+
+The 2026-10-14 activity/timer analysis is documentation-only. Recommended sequence remains P1.1 → P1.2 → P1.3 as separately reviewable implementation orders. Preserve the 200 ms overlay and current API pauses. Existing same-hash/fresh-orbit fixes must remain intact; the older multi-minute delay is neither reproduced nor proved fixed. DESTINY_API records confirmed gates versus conditional identity/freshness risks; PERFORMANCE pins the original/Custom comparison and measurements still needed.
 
 ## P0 / Work package 1 — Process-free recognition implemented; live/exit verification open
 
@@ -29,6 +31,8 @@ Permanent direction: measurably exceed original Threepole's speed/reliability wh
 
 **Proposed implementation:** Publish accepted 204 identity/timing independently, then enrich metadata within the same cancellable app lifetime. Preserve known classification for the same hash where available; represent unknown metadata conservatively. Avoid holding the global metadata lock across network I/O; deduplicate requests by hash and ignore results belonging to an obsolete profile/activity. Make unusable metadata retryable with bounded backoff rather than caching it permanently.
 
+**Scope:** `pollers/playerdata.rs::update_current`, `api.rs::ActivityInfoSource`, the shared `main.rs::get_activity_info` caller, `api/responses.rs`, `src/core/types.ts` and overlay `checkTimerInterval`/`updateActivityDisplay`. Changing backend publication alone leaves the frontend timer dependent on `activityInfo.activityModes`; explicitly support partial metadata using cached or validated modes already present in 204, without fabricating classification/name. Use at most bounded enrichment work with profile-generation guards, no new service or periodic poller. Recheck details-window consumers of the shared model/cache. Source-cache recovery and scheduling tests must exercise real cache behavior, not just the refresh predicate.
+
 **Speed/API effects:** Removes manifest latency from status propagation. Keep 204/1000/history cadences unchanged. Reuse cached definitions and collapse concurrent misses; do not add per-history-item requests. Recovery of an empty/failed entry can add bounded retry requests compared with today's stuck-cache behavior; define and measure that budget before shipping. Unknown-classification UI may remain limited until enrichment, but must not retain the previous activity as if current.
 
 **Acceptance:** Mock manifest timeout, network/API/parse failure, ResponseMissing and empty name followed by a valid definition. Accepted status/orbit arrives without waiting; current hash/timer never reverts after late metadata. Test profile switch, same-hash restart, concurrent details-window lookups, all display settings and successful enrichment. Verify network deduplication/retry counts, no false raid classification and cancellation.
@@ -39,6 +43,8 @@ Permanent direction: measurably exceed original Threepole's speed/reliability wh
 
 **Proposed implementation:** After required profile/current data, publish partial readiness and start independent current/history/optional paths. Model “history not loaded” separately from “loaded and empty”; keep history failure/recovery separate from status errors. Preserve profile reset cancellation. First successfully loaded history is a notification baseline, so asynchronous loading must not create a flood of old clears.
 
+**Scope:** `PlayerDataPoller::reset` and status serialization in `pollers/playerdata.rs`, `src/core/types.ts`, overlay `refresh` and `src/window/details/DetailsWindow.svelte`. Current/history readiness must not be conflated with an empty vector; avoid publishing the old pre-history activity snapshot as current after a long load. Earlier concurrent work may alter startup CPU/network peaks and must be measured, not presumed free.
+
 **Speed/API effects:** First usable activity no longer waits for character/page history scans. Do not increase cadence or create duplicate initial/current/history fetches. Optional timing may begin earlier, so startup request timing/concurrency changes even when steady-state rates do not; measure cold-start counts and bound concurrency.
 
 **Acceptance:** Slow/failing history cannot delay fresh activity/orbit; history later populates correct per-hash counts. Empty/private/offline/profile-switch cases behave predictably. Initial baseline produces no retrospective clear burst. Verify old profile requests cannot publish after reset, no duplicate loops and unchanged steady-state request budget. Depends on the metadata behavior established in P1.1.
@@ -48,6 +54,8 @@ Permanent direction: measurably exceed original Threepole's speed/reliability wh
 **Evidence:** `overlay.ts::refresh` checks only the newest history row and stores its ID even when incomplete. A false-to-true completion correction of that ID or a late older clear generates no popup. Both were reproduced in a production-function memory harness; existing ordering tests do not cover them.
 
 **Proposed implementation:** Track notification eligibility/completed instance IDs against the loaded-history baseline instead of only the first row. Bound state to the relevant profile/day/history and define reset/pruning behavior. Handle corrected completion, multiple arrivals and repeated snapshots exactly once. Preserve no historical startup flood and explicitly define notification-disable/re-enable behavior without surprising backlog delivery.
+
+**Scope:** overlay `refresh`, `popups.ts` and frontend tests, using P1.2's readiness/profile state. Preserve the identity of queued results; discuss queue bounds/expiry and user-visible backlog handling before changing delivery policy. A notification belongs to a historical instance, not automatically to the current same-hash run. This package must not add timer freezing; that is a separate behavior decision with unresolved association requirements.
 
 **Speed/API effects:** No new endpoint or polling. Process existing bounded daily history and avoid repeated full UI work where unchanged. An instance-ID set costs small per-history-entry memory; specify pruning. Notification logic must not own activity/timer state.
 
@@ -61,6 +69,10 @@ Add opt-in, bounded, redacted timing diagnostics only if needed to distinguish A
 
 Then consider separate evidence-led changes: honor Bungie throttle durations; isolate error sources/stale UI; validate unknown-history classification, cache invalidation and day-boundary behavior; measure history pagination, payload cloning, metadata contention, details-window rendering and the process-free detector's bounded placement state. Do not solve incomplete history by an unbounded manifest request per record. Each change needs its own correctness test and before/after request/CPU/startup evidence. Polling increases are not currently justified.
 
+**Conditional timing follow-up:** If remaining traces show already received 1000 data waiting for the next 204 cycle, consider immediate guarded re-evaluation in the existing task (`activity_timing.rs`/`playerdata.rs`), preserving identity ownership and avoiding extra fetches. Test both arrival orders, equal/old mint values, orbit/re-entry and profile cancellation. Investigate multi-character selection before changing its heuristic. Nullable Transitory `endTime` could support a separately approved completion display, but cannot safely freeze an ambiguously identified run. Do not add PGCR polling or infer a new run from a hash alone.
+
+Expected resource effects of P1.1–P1.3 are bounded request bookkeeping, earlier startup overlap and small per-history notification state; possible benefits are less lock waiting, duplicate work and stale UI. None is a measured CPU/RAM/GPU or FPS improvement. Removing waits may increase effective API throughput within unchanged pauses; measure it. Reduce/simplify proposed concurrency if it introduces relevant load. Keep all Custom settings, counters, name auto-hide, milliseconds, caches, tray and shutdown behavior intact. PERFORMANCE's ten core live scenarios plus ambiguity/queue cases are the acceptance matrix; mock tests cannot close live timing or game-performance criteria.
+
 ## P3 — Complete Eager Edge and restrained UI polish
 
 Replace the remaining overlay-clear calendar with the existing local Eager Edge asset. Inventory all Threepole Custom icon surfaces, including app/taskbar/tray/installer/popups and remaining UI symbols, against the user's all-icons requirement. Verify Windows scaling/installer rendering and preserve control usability; report scope ambiguities before implementation rather than claiming complete icon coverage.
@@ -69,7 +81,7 @@ No remote icon requests or restored activity-type icon endpoint. Keep this indep
 
 ## Validation and delivery for implementation orders
 
-- Focused frontend/Rust regressions plus the existing five overlay and 37 Rust baseline checks where applicable.
+- Focused frontend/Rust regressions plus the current five overlay and 48 Rust baseline checks where applicable.
 - Vite build; separate type-check coverage should be added/evaluated in a dedicated tooling change, because current CI does not provide it.
 - Windows MSI build for runtime/packaging changes; test after Tauri configures Cargo features as the current workflow does.
 - Record commit, test results, build/artifact link, request-volume/CPU/RAM impact and remaining live acceptance, including FPS/frametime/microstutter evidence where safely available. Distinguish measured gains from expectations. A green build does not prove API latency, resource savings or exit behavior.

@@ -4,6 +4,8 @@ Audited runtime baseline: 1.1.4, 2026-10-11; development goals aligned 2026-10-1
 
 Prioritize first activity detection, activity changes, orbit/timer stop, repeated same-activity restarts, timely clears/notifications, recognized-clear-to-overlay delay and cold/warm startup. Optimize the full Bungie API → retrieval → processing → state → overlay chain. Prefer bounded parallelism, cache reuse, efficient updates and removal of local blocking; more polling, substantially higher system load or riskier game access are not acceptable shortcuts. PROJECT_CONTEXT defines priorities and prior user approval for even a small resource tradeoff.
 
+**Binding gate, 2026-10-14:** account safety comes first, followed by unaffected Destiny performance, before correctness, display speed, app resource savings and convenience. Faster timer updates never justify a relevant FPS or 1%-low loss, worse frametimes, microstutter or input latency. Include CPU/GPU peaks and background work in every proposal. Neither game-performance neutrality nor improvement is established by source inspection or a green build.
+
 ## Earlier user observations — still require live validation
 
 On an earlier custom build, original Threepole detected orbit sooner; custom kept the previous activity/timer visible longer. A clear notification could arrive before the live overlay changed. That ordering alone is valid because history and live state are separate sources; corruption of a later run would be a bug.
@@ -64,9 +66,22 @@ No frequency increase without a measured limiting path and a quantified before/a
 
 If code-level tests do not explain remaining latency, add low-overhead, opt-in diagnostics inside app lifetime only: request start/end and outcome, component generation times, accepted/rejected status/timing, metadata wait/cache hit, history arrival, frontend receipt and visible transition. Redact API keys, cookies and profile identifiers. Bound buffers/logs; no external collector, service, automatic polling increase or logging after exit.
 
+Prefer a fixed-capacity in-memory ring with explicit local export, disabled by default; no full API bodies or per-frame logs. Correlate a local profile generation, response/event sequence, pseudonymous character/run identifiers, raw and accepted starts/hash, history instance arrival, popup creation versus delivery, rejection reason and readiness/cache state. Use monotonic durations within each process and wall-clock server timestamps separately; do not subtract unsynchronized Rust/WebView clocks. Reuse existing requests/events, never query Destiny or add Bungie calls for diagnostics. Buffer size, export I/O and enabled/disabled overhead must be assessed before a separately authorized implementation.
+
 Separate Bungie data age from local request, lock, state and rendering delay. Record request counts and cold/warm CPU, memory and handle behavior before and after fixes. Do not infer affinity/backend routing causes from timing alone.
 
 ## Permanent original-versus-Custom comparison method
+
+Source comparison refreshed 2026-10-14: original **1.1.2 / `773638cb47ce94d98c11fce141d0bb1a34917c69`**, Custom **1.1.4 / `42bd50c8f473d7c891e22efff8b2d04dc46945a0`**. Inspected original [player-data scheduling/state](https://github.com/des-sh/threepole/blob/773638cb47ce94d98c11fce141d0bb1a34917c69/src-tauri/src/pollers/playerdata.rs) and [overlay](https://github.com/des-sh/threepole/blob/773638cb47ce94d98c11fce141d0bb1a34917c69/src/overlay/overlay.ts) alongside Custom:
+
+| Original versus current Custom | Source-level result, not measured speed |
+| --- | --- |
+| Original serially substitutes a history round for a current update; Custom joins independent loops after initialization | Removes that steady-state network gate. Both still gate first publication on history and await current metadata. Shared Custom cache waits remain. |
+| Original rejects backward activity starts and does not use optional Transitory timing | Custom freshness guards accept newer backward/epoch orbit and allow same-hash timing advances. Already unit-covered, not proof the old live complaint disappeared. |
+| Original updates history only when its newest record advances | Custom replaces corrected/older/reset history; both overlays still use only the first row for notifications. Backend correction does not fix frontend notification eligibility. |
+| Original registers update listeners after initial snapshots | Custom registers listeners first and protects against stale initial reads. Both render elapsed time locally at 2/30 Hz; this is not a server-refresh mechanism. |
+
+The original loop performs four current requests plus one history round per steady five iterations after its initial cycle, each with a two-second pause. Ignoring all I/O, this is about 24 current requests/minute versus Custom's current ceiling of 30, plus Custom's optional six 1000 requests. History pagination and I/O further change actual counts. The existing Custom architecture is therefore not already proved request-equivalent to original; proposed optimizations must compare against both baselines without raising the present pauses. Package 1 changed window targeting only and cannot itself fix API/timer delays.
 
 Use [des-sh/threepole](https://github.com/des-sh/threepole) as a continuing source-code reference. Before each relevant optimization compare original and Custom retrieval, scheduling, locks/caches, state publication and rendering paths; record upstream commit/version and Custom commit. Identify necessary feature cost versus avoidable local delay, and separate the original 1.1.2 base from newer upstream changes. Do not claim a fresh source comparison when only historical knowledge or measurements are available. Reference code never overrides the safety boundary.
 
@@ -74,7 +89,7 @@ Use identifiable original and Custom builds under matching Windows, hardware, ga
 
 Measure startup/loading and each detection/display stage, CPU averages and short peaks, app plus owned-WebView RAM and growth over time, network bytes/API counts, UI/timer work and recovery. Include visible, minimized and tray states, long sessions and repeated Dungeon **and Raid** restarts. Report typical and slow-tail latency (for example median/p95 when sample count supports it), variability and failures, not only the best run. Separate game action → available Bungie data from available response → accepted state → visible overlay; without enough timestamps, label the missing interval unknown rather than assigning it to Bungie or local code.
 
-Assess Destiny FPS, frametimes and microstutter with user observations or already permitted measurement sources. Measurement itself must not introduce direct Destiny process access, injection, game/input hooks, extra services or unapproved tools. If safe frametime evidence is unavailable, explicitly leave that criterion unverified. Distinguish code-level expectations, automated/mock results and practical Windows/Destiny measurements; never promote one into the other.
+Assess Destiny FPS, 1% lows, frametimes, microstutter and input latency with already permitted measurement sources; label subjective user observations separately from numerical measurements. Compare against no Threepole as well as original under matching conditions: equality with original alone does not establish no game impact. Measure aggregate app/WebView CPU, GPU and RAM without querying the Destiny process. Measurement itself must not introduce direct Destiny process access, injection, game/input hooks, extra services or unapproved tools. Original contains the prohibited process query, so its role as reference does not authorize running that path for benchmarking; use existing permitted measurements or a separately approved compliant baseline, clearly identifying any modification. If safe game-performance evidence is unavailable, explicitly leave that criterion unverified. Distinguish code-level expectations, automated/mock results and practical Windows/Destiny measurements; never promote one into the other.
 
 ## Repeatable validation matrix — all live acceptance remains open
 
@@ -93,6 +108,9 @@ Record tested commit/MSI, Windows/display mode, profile/character count, setting
 | Corrected same-ID / late older / multiple clears | Exactly-once eligible notification after a baseline, stable counts and no startup flood |
 | Reset at 17:00 UTC | Cutoff by activity start, empty history replacement, day-boundary run semantics |
 | Private/missing/malformed/old/future 1000 | 204 continues; optional disappearance does not roll timer back |
+| Ambiguous identity/freshness | Multiple characters with tied dates/epoch orbit, equal-mint conflicting status, clock skew, late join, 1000 before/after 204, orbit consuming optional timing; unknown identity never authorizes a timer stop |
+| Completed but still in activity | Distinguish history completion, optional start/end and actual departure; delayed prior-run end/clear must never freeze a new same-hash run |
+| Hidden popup then new run | Record history arrival versus actual popup display; preserve new timer, profile isolation and defined notification settings |
 | Slow/failed history, manifest, offline/recovery, throttling | Partial readiness, bounded retries, recovery, visible stale/error state; use mocked failures where live reproduction is impractical |
 | Empty/corrupt cache; unknown activity | Conservative classification and later enrichment, no request storm |
 | Settings and overlay focus | Independent timer/name/auto-hide/counter/notifications; milliseconds on/off; hide/show, alt-tab, resize and fullscreen behavior |
@@ -103,4 +121,4 @@ There is no OAuth flow to time as a login: measure profile loading. Exclusive fu
 
 ## Completion criteria
 
-A relevant performance/runtime change requires focused regression checks, appropriate build/MSI validation, understood request impact, unchanged safety boundary and live evidence where Bungie/Destiny behavior is involved. Report what is proved and what remains pending. A green build alone cannot close a live-timing issue. [CODEX_HANDOFF](CODEX_HANDOFF.md) records the 37 Rust / five overlay test baseline and its integration-test gaps.
+A relevant performance/runtime change requires focused regression checks, appropriate build/MSI validation, understood request impact, unchanged safety/game-performance boundaries and live evidence where Bungie/Destiny behavior is involved. Report what is proved and what remains pending. A green build alone cannot close a live-timing issue. [CODEX_HANDOFF](CODEX_HANDOFF.md) records build #25's 48 Rust / five overlay test baseline and its integration-test gaps. The analysis/documentation order adds no installed-app or game-performance measurements.

@@ -20,12 +20,15 @@ For future optimizations inspect the relevant code paths in the original reposit
 In order of importance:
 
 1. Safety and Destiny account protection.
-2. Reliability and correct function.
-3. Measurably higher speed than original Threepole.
-4. Preferably equal or lower resource consumption.
-5. Additional convenience features.
+2. Unaffected Destiny 2 performance: FPS, 1% lows, frametimes, microstutter and input latency.
+3. Reliability and correct function.
+4. Measurably higher speed than original Threepole.
+5. Preferably equal or lower resource consumption.
+6. Additional convenience features.
 
 Speed and resource use must improve together: use efficient architecture, bounded parallel work, caching and removal of local delays rather than substantially higher system load or excessive requests. A small resource increase may be acceptable only for a relevant, measurable benefit without compromising safety or game performance; explain the tradeoff and obtain the user's decision beforehand. Significantly higher resource use is not an acceptable acceleration strategy. Maintainability and preservation of existing independent features apply throughout.
+
+This 2026-10-14 priority clarification supersedes the earlier five-level order. Faster Threepole updates never justify relevant FPS/1%-low losses, extra microstutter, frametime spikes or input delay. Include GPU load as well as CPU/RAM in assessments. Without comparable measurements, unchanged game performance remains unverified. Measurement must itself respect the safety boundary; PERFORMANCE owns the safe comparison and optional local-diagnostics protocol.
 
 ## Non-negotiable safety constraints
 
@@ -84,6 +87,8 @@ Codex is now the central workspace for development, debugging, tests, performanc
 Start sessions inside the correct repository checkout and follow root AGENTS.md. It explicitly routes future sessions to the existing knowledge files. Those linked documents still need to be read; automatic instruction discovery does not automatically include all of `docs/`. Keep AGENTS concise, preserve its location and inspect any applicable override before work. No extra global configuration or duplicate instruction tree is required. [Official instruction-discovery documentation](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
 
 Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The window/tray clarification supersedes the previously planned rebuild. The user subsequently authorized package 1 only: process-free overlay recognition, focused tests, existing-document updates and a CI MSI testbuild. Window/tray, shutdown, Bungie pollers, manifest/history and notification changes remain outside that order. A subsequent order authorizes renaming the development branch to `threepole-custom-dev`, updating the Windows push trigger and continuing the automatically closed PR #1 as Draft PR #2. Keep the remaining CI configuration unchanged and PR #2 open/Draft; no merge. Future packages require their own user order.
+
+The current activity/timer investigation authorizes analysis, recommendations and existing-document changes with commit/push only. No manifest, initialization, notification, timer or diagnostics implementation is authorized by that order. Package 1 remains implemented but incompletely live-tested; further runtime changes need separate approval.
 
 ## Knowledge-base map
 
