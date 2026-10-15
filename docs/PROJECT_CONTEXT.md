@@ -88,7 +88,7 @@ Start sessions inside the correct repository checkout and follow root AGENTS.md.
 
 Maintain a single source for each kind of detail using the map below. Preserve observations and their evidence level; do not turn a roadmap proposal into an implemented feature. The window/tray clarification supersedes the previously planned rebuild. The user subsequently authorized package 1 only: process-free overlay recognition, focused tests, existing-document updates and a CI MSI testbuild. Window/tray, shutdown, Bungie pollers, manifest/history and notification changes remain outside that order. A subsequent order authorizes renaming the development branch to `threepole-custom-dev`, updating the Windows push trigger and continuing the automatically closed PR #1 as Draft PR #2. Keep the remaining CI configuration unchanged and PR #2 open/Draft; no merge. Future packages require their own user order.
 
-The current activity/timer investigation authorizes analysis, recommendations and existing-document changes with commit/push only. No manifest, initialization, notification, timer or diagnostics implementation is authorized by that order. Package 1 remains implemented but incompletely live-tested; further runtime changes need separate approval.
+The subsequent P1.1 order authorizes only decoupling accepted activity state from manifest/metadata, focused regressions, existing-document updates, commit/push and a Windows MSI testbuild. The user reaffirmed completion on 2026-10-15. Initial-history readiness (P1.2), notification delivery (P1.3), timer-stop semantics and diagnostics remain outside this order. Package 1 remains incompletely live-tested; preserve process-free targeting and current tray/shutdown behavior.
 
 ## Knowledge-base map
 

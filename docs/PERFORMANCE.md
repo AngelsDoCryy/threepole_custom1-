@@ -16,12 +16,12 @@ On an older build, the first Dungeon was recognized after about 30 seconds, whil
 
 | Area | Implemented change | Practical limit |
 | --- | --- | --- |
-| Metadata | Session activity cache and persistent learned raid/dungeon modes; no per-history-item classification request | Unknown incomplete history can be omitted; metadata still blocks current updates |
+| Metadata | Session activity cache and persistent learned raid/dungeon modes; no per-history-item classification request | Unknown incomplete history can be omitted; P1.1 removes metadata network gating from current updates |
 | Icon metadata | Removed activity-type definition request, icon fields and activity-icon setting | Eager Edge clear replacement is pending and should use a local asset |
 | HTTP | Shared client, connection reuse, lightweight cookie affinity, 15-second timeout | No guaranteed backend freshness; throttle duration is not honored yet |
-| Polling | Separate steady-state current/history futures; independent optional 1000 in 1.1.4 | Initialization still waits for history; shared metadata locks can contend |
+| Polling | Separate steady-state current/history futures; independent optional 1000 in 1.1.4 | Initialization still waits for history; P1.1 cache reads no longer wait on manifest I/O |
 | Timing | Independent freshness guards, newer backward/epoch status acceptance, clear optional start on orbit | Transitory cannot establish run identity; character selection needs live coverage |
-| Recovery | Initial failures retry; missing metadata can request refresh; recoverable window positioning/sizing and visibility transitions | Cached empty names defeat source refetch; some later errors remain unobtrusive |
+| Recovery | Initial failures retry; missing metadata can request refresh; recoverable window positioning/sizing and visibility transitions | P1.1 adds bounded empty/partial metadata recovery; some later errors remain unobtrusive |
 | History | Full-record replacement, stable ordering, late/corrected records and reset handling | Frontend notification logic still misses corrections and older arrivals |
 | Overlay | Serialized/retryable show/hide, listener-before-snapshot initialization, stopped hidden/disabled timer interval | Details window retains a separate 30 Hz interval; actual CPU/memory not benchmarked |
 | Overlay targeting | Package 1 replaces the earlier CloseHandle leak fix with window-only detection; removes the unbounded identity cache and skips unchanged geometry | Metadata observed on one installation; runtime CPU/RAM and cross-configuration reliability remain unmeasured |
@@ -30,13 +30,23 @@ No new independent background service was introduced. Current X closes the UI wh
 
 ## Confirmed bottlenecks and unmeasured risks
 
-Confirmed from code: initial history gates first usable data; manifest errors return before committing activity changes; successful empty-name definitions stay cached. Shared source locks span metadata network waits. These local paths deserve focused fixes even before the old restart complaint is reproduced.
+Initial history still gates first usable data. The pre-P1.1 manifest failure/publication and permanent empty-entry paths were confirmed in code and are corrected by P1.1 as described below; this does not establish the old restart complaint is resolved live.
 
 Further measurement targets: repeated full daily-history pagination, detail-window metadata contention, full player-data/history cloning and event payloads, synchronous cache writes, cache invalidation/size, details-window timer activity, and stale-data/error presentation. Their existence is observable in code; their real performance cost has not been measured. Do not present them as the proven cause of the historical 2–3 minute delay.
 
 Package 1 removes the former unbounded HWND/name cache and redundant geometry updates, and explicitly requests hide on invalid detection/geometry/placement. Its source-level behavior and remaining acceptance are recorded below. Hidden popup queues have no bound; name-hide and existing popup timeouts remain scheduled. Details uses a 30 Hz timer plus a 30-second age refresh without an explicit visibility pause while its window exists; X destroys that webview. Their cost needs measurement; they do not justify changing notification semantics or window management silently. Retaining a hidden main webview is no longer a planned optimization; preserve current destruction/recreation and assess unnecessary UI work separately if measurements justify it.
 
 The overlay's milliseconds option changes drawing frequency from about 2 Hz to 30 Hz; it does not change API polling. Name/auto-hide, counters, notifications and local icons must not add requests or materially increase overhead.
+
+## P1.1 — Manifest-independent activity state (2026-10-15)
+
+Compared original 1.1.2 `773638cb47ce94d98c11fce141d0bb1a34917c69` and Custom pre-change `ccd3308`: original and pre-change Custom awaited definitions under a shared source lock before publishing current state. P1.1 uses memory-only status/classification reads, coalesced enrichment in the existing task and one serialized manifest request across all callers. Existing 204/1000/history pauses, HTTP client and endpoints are unchanged. Initial history still gates publication.
+
+The full-definition/retry cache is capped at 256 entries; successful entries are reused, incomplete/failed entries back off 30/60/120/240/300 seconds using existing status updates, with no new periodic poller. Empty entries now generate recovery requests that the old stuck cache did not; failures previously retried much faster. Cache eviction can cause refetch/reset backoff. Removing waits can increase actual completed status cycles toward the existing ceiling. Report measured counts instead of claiming identical traffic.
+
+Expected cost: one watch slot/future, bounded entry bookkeeping and a small mode array per current observation. Persistent learned-mode writes use the existing blocking pool outside cache locks, only when learned modes change; no new service/process or runtime dependency. This avoids disk I/O in the joined status task, but net CPU/RAM/GPU, FPS/1% lows and frametimes remain unmeasured. No speed or game-performance-neutrality claim follows from the code. The old request can finish after an activity change; it may fill reusable cache data but only matching current metadata can be published, never old identity/timing.
+
+Automated checks cover blocked/failing/partial metadata, deduplication, cancellation/retry, bounds, unchanged and repeated starts, orbit while metadata is pending, stale observations and profile generations. Frontend checks cover partial/unknown classification, late names/auto-hide and independent preferences. Local frontend build/tests pass; the associated Windows workflow must establish Rust compilation/tests and MSI packaging. Real HTTP/Bungie scheduling and Windows/Destiny acceptance remain open under the matrix below.
 
 ## Package 1 — Process-free overlay recognition (2026-10-14)
 

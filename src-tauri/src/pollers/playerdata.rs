@@ -7,15 +7,14 @@ use tauri::{
     async_runtime::{self, JoinHandle},
     AppHandle, Manager,
 };
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 
 use super::activity_timing::ActivityTiming;
 
 use crate::{
     api::{
-        requests::BungieResponseError,
         responses::{ActivityInfo, CompletedActivity, LatestCharacterActivity, ProfileInfo, ProfileTransitoryTiming},
-        Api, ApiError, Source,
+        Api, ActivityInfoSource, Source,
     },
     config::profiles::Profile,
     consts::{DUNGEON_ACTIVITY_MODE, LOSTSECTOR_ACTIVITY_MODE, RAID_ACTIVITY_MODE, STRIKE_ACTIVITY_MODE},
@@ -33,33 +32,39 @@ pub struct PlayerData {
 #[derive(Serialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerDataStatus {
+    #[serde(skip)]
+    generation: u64,
     last_update: Option<PlayerData>,
     error: Option<String>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct CurrentActivity {
     start_date: DateTime<Utc>,
     activity_hash: usize,
     activity_info: Option<ActivityInfo>,
+    activity_modes: Vec<usize>,
 }
 
 #[derive(Default)]
 pub struct PlayerDataPoller {
+    generation: u64,
     task_handle: Option<JoinHandle<()>>,
     current_playerdata: Arc<Mutex<PlayerDataStatus>>,
 }
 
 impl PlayerDataPoller {
     pub async fn reset(&mut self, app_handle: AppHandle) {
+        self.generation = self.generation.wrapping_add(1);
+        let generation = self.generation;
         if let Some(t) = self.task_handle.as_ref() {
             t.abort();
         }
 
         {
             let mut lock = self.current_playerdata.lock().await;
-            *lock = PlayerDataStatus::default();
+            *lock = PlayerDataStatus { generation, ..PlayerDataStatus::default() };
 
             send_data_update(&app_handle, lock.clone());
         }
@@ -102,106 +107,127 @@ impl PlayerDataPoller {
                 }
             };
 
-            let mut current_activity = CurrentActivity {
-                start_date: DateTime::<Utc>::MIN_UTC,
-                activity_hash: 0,
-                activity_info: None,
-            };
-            let mut activity_history = Vec::new();
-            let mut activity_timing = ActivityTiming::default();
-            let transitory_timing = Mutex::new(ProfileTransitoryTiming::default());
-
-            loop {
-                // Initial failures keep retrying; no app restart is required.
-                let result = match update_current(&app_handle, &mut current_activity, &profile, &mut activity_timing, &transitory_timing).await {
-                    Ok(_) => update_history(&app_handle, &mut activity_history, &profile).await,
-                    Err(error) => Err(error),
+            let (metadata_tx, mut metadata_rx) = watch::channel(0usize);
+            let tracking = async {
+                let mut current_activity = CurrentActivity {
+                    start_date: DateTime::<Utc>::MIN_UTC,
+                    activity_hash: 0,
+                    activity_info: None,
+                    activity_modes: vec![],
                 };
-                match result {
-                    Ok(_) => break,
-                    Err(error) => {
-                        {
-                            let mut state = playerdata_clone.lock().await;
-                            state.error = Some(error.to_string());
-                            send_data_update(&app_handle, state.clone());
+                let mut activity_history = Vec::new();
+                let mut activity_timing = ActivityTiming::default();
+                let transitory_timing = Mutex::new(ProfileTransitoryTiming::default());
+
+                loop {
+                    // Initial failures keep retrying; no app restart is required.
+                    let result = match update_current(&app_handle, &mut current_activity, &profile, &mut activity_timing, &transitory_timing, &metadata_tx).await {
+                        Ok(_) => update_history(&app_handle, &mut activity_history, &profile).await,
+                        Err(error) => Err(error),
+                    };
+                    match result {
+                        Ok(_) => break,
+                        Err(error) => {
+                            {
+                                let mut state = playerdata_clone.lock().await;
+                                state.error = Some(error.to_string());
+                                send_data_update(&app_handle, state.clone());
+                            }
+                            tokio::time::sleep(Duration::from_secs(5)).await;
                         }
-                        tokio::time::sleep(Duration::from_secs(5)).await;
                     }
                 }
-            }
-            {
-                let mut state = playerdata_clone.lock().await;
-                state.error = None;
-                state.last_update = Some(PlayerData {
-                    current_activity,
-                    activity_history,
-                    profile_info,
-                });
-                send_data_update(&app_handle, state.clone());
-            }
-
-            // All futures belong to this task: reset/Exit cancels them together.
-            // Slow history or optional timing must not stop status polling.
-            let current_updates = async {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-                    let mut current = playerdata_clone.lock().await
-                        .last_update.as_ref().unwrap().current_activity.clone();
-                    let result = update_current(&app_handle, &mut current, &profile, &mut activity_timing, &transitory_timing).await;
+                {
                     let mut state = playerdata_clone.lock().await;
-                    match result {
-                        Ok(changed) => {
-                            let recovered = state.error.take().is_some();
-                            if changed {
-                                state.last_update.as_mut().unwrap().current_activity = current;
+                    enrich_activity(&mut current_activity, &app_handle.state::<Api>().activity_info_source);
+                    state.error = None;
+                    state.last_update = Some(PlayerData {
+                        current_activity,
+                        activity_history,
+                        profile_info,
+                    });
+                    send_data_update(&app_handle, state.clone());
+                }
+
+                // All futures belong to this task: reset/Exit cancels them together.
+                // Slow history or optional timing must not stop status polling.
+                let current_updates = async {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        let mut current = playerdata_clone.lock().await
+                            .last_update.as_ref().unwrap().current_activity.clone();
+                        let result = update_current(&app_handle, &mut current, &profile, &mut activity_timing, &transitory_timing, &metadata_tx).await;
+                        let mut state = playerdata_clone.lock().await;
+                        match result {
+                            Ok(changed) => {
+                                let recovered = state.error.take().is_some();
+                                if changed {
+                                    enrich_activity(&mut current, &app_handle.state::<Api>().activity_info_source);
+                                    state.last_update.as_mut().unwrap().current_activity = current;
+                                }
+                                if changed || recovered {
+                                    send_data_update(&app_handle, state.clone());
+                                }
                             }
-                            if changed || recovered {
+                            Err(error) => {
+                                state.error = Some(error.to_string());
                                 send_data_update(&app_handle, state.clone());
                             }
                         }
-                        Err(error) => {
-                            state.error = Some(error.to_string());
-                            send_data_update(&app_handle, state.clone());
-                        }
                     }
-                }
-            };
+                };
 
-            let history_updates = async {
-                loop {
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                    let mut history = playerdata_clone.lock().await
-                        .last_update.as_ref().unwrap().activity_history.clone();
-                    let result = update_history(&app_handle, &mut history, &profile).await;
-                    let mut state = playerdata_clone.lock().await;
-                    match result {
-                        Ok(changed) => {
-                            if changed {
-                                // Update only history; preserve newer current-activity data.
-                                state.last_update.as_mut().unwrap().activity_history = history;
+                let history_updates = async {
+                    loop {
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                        let mut history = playerdata_clone.lock().await
+                            .last_update.as_ref().unwrap().activity_history.clone();
+                        let result = update_history(&app_handle, &mut history, &profile).await;
+                        let mut state = playerdata_clone.lock().await;
+                        match result {
+                            Ok(changed) => {
+                                if changed {
+                                    // Update only history; preserve newer current-activity data.
+                                    state.last_update.as_mut().unwrap().activity_history = history;
+                                    send_data_update(&app_handle, state.clone());
+                                }
+                            }
+                            Err(error) => {
+                                state.error = Some(error.to_string());
                                 send_data_update(&app_handle, state.clone());
                             }
                         }
-                        Err(error) => {
-                            state.error = Some(error.to_string());
-                            send_data_update(&app_handle, state.clone());
+                    }
+                };
+
+                let transitory_updates = async {
+                    loop {
+                        // Never hold the snapshot lock during a network request.
+                        // Errors affect only this optional source; 204 keeps working.
+                        if let Ok(timing) = Api::get_profile_transitory(&profile).await {
+                            *transitory_timing.lock().await = timing;
                         }
+                        tokio::time::sleep(Duration::from_secs(10)).await;
+                    }
+                };
+
+                tokio::join!(current_updates, history_updates, transitory_updates);
+            };
+            // Demand-driven enrichment inside the same cancellable task. The
+            // watch slot coalesces rapid changes; no queue, timer or extra poller.
+            let metadata_updates = async {
+                while metadata_rx.changed().await.is_ok() {
+                    let hash = *metadata_rx.borrow_and_update();
+                    if hash == 0 { continue; }
+                    let api = app_handle.state::<Api>();
+                    let _ = api.activity_info_source.get(&hash).await;
+                    let mut state = playerdata_clone.lock().await;
+                    if enrich_current(&mut state, generation, hash, &api.activity_info_source) {
+                        send_data_update(&app_handle, state.clone());
                     }
                 }
             };
-
-            let transitory_updates = async {
-                loop {
-                    // Never hold the snapshot lock during a network request.
-                    // Errors affect only this optional source; 204 keeps working.
-                    if let Ok(timing) = Api::get_profile_transitory(&profile).await {
-                        *transitory_timing.lock().await = timing;
-                    }
-                    tokio::time::sleep(Duration::from_secs(10)).await;
-                }
-            };
-
-            tokio::join!(current_updates, history_updates, transitory_updates);
+            tokio::join!(tracking, metadata_updates);
         }));
     }
 
@@ -229,6 +255,7 @@ async fn update_current(
     profile: &Profile,
     activity_timing: &mut ActivityTiming,
     transitory_timing: &Mutex<ProfileTransitoryTiming>,
+    metadata_tx: &watch::Sender<usize>,
 ) -> Result<bool> {
     let current_activities = Api::get_profile_activities(profile).await?;
 
@@ -254,39 +281,53 @@ async fn update_current(
         Utc::now(),
     ).ok_or(anyhow!("No valid current activity timestamp"))?;
 
-    if !should_refresh_current(last_activity, &latest_activity) {
-        return Ok(false);
-    }
-
     let api = handle.state::<Api>();
     api.profile_info_source.lock().await.set_characters(profile, characters);
-
-    let activity_info = if latest_activity.current_activity_hash == 0 {
-        None
-    } else {
-        match api.activity_info_source.lock().await
-            .get(&latest_activity.current_activity_hash).await {
-            Ok(info) if !info.name.is_empty() => Some(info),
-            Ok(_) | Err(ApiError::ResponseError(BungieResponseError::ResponseMissing)) => None,
-            Err(error) => return Err(error.into()),
-        }
-    };
-
-    // Commit the complete state together, including hash=0 when entering orbit.
-    *last_activity = CurrentActivity {
-        start_date: latest_activity.date_activity_started,
-        activity_hash: latest_activity.current_activity_hash,
-        activity_info,
-    };
-    Ok(true)
+    let changed = update_current_snapshot(last_activity, latest_activity, &api.activity_info_source);
+    // Reuse status opportunities for cooldown retries, even if identity did not
+    // change. The worker never requests 204/1000/history itself.
+    let _ = metadata_tx.send(last_activity.activity_hash);
+    Ok(changed)
 }
 
-fn should_refresh_current(last: &CurrentActivity, latest: &LatestCharacterActivity) -> bool {
-    // ActivityTiming rejects stale observations before this comparison. Hash
-    // updates/orbit may arrive with a 204 time behind the Transitory timer.
-    latest.date_activity_started != last.start_date
-        || latest.current_activity_hash != last.activity_hash
-        || (latest.current_activity_hash != 0 && last.activity_info.is_none())
+fn update_current_snapshot(last: &mut CurrentActivity, latest: LatestCharacterActivity, source: &ActivityInfoSource) -> bool {
+    let mut next = CurrentActivity {
+        start_date: latest.date_activity_started,
+        activity_hash: latest.current_activity_hash,
+        activity_modes: latest.activity_modes,
+        activity_info: None,
+    };
+    enrich_activity(&mut next, source);
+    if *last == next { return false; }
+    *last = next;
+    true
+}
+
+fn enrich_activity(current: &mut CurrentActivity, source: &ActivityInfoSource) {
+    if current.activity_hash == 0 {
+        current.activity_info = None;
+        current.activity_modes.clear();
+        return;
+    }
+    current.activity_info = source.peek(current.activity_hash);
+    // Explicit 204 modes win; only absent/generic PvE classification uses the
+    // manifest or previously learned modes. Unknown modes are not invented.
+    if current.activity_modes.iter().all(|mode| *mode == 0 || *mode == 7) {
+        let fallback = current.activity_info.as_ref().map(|info| info.activity_modes.clone())
+            .filter(|modes| !modes.is_empty()).unwrap_or_else(|| source.cached_modes(current.activity_hash));
+        supplement_cached_modes(&mut current.activity_modes, Some(&fallback));
+    }
+}
+
+fn enrich_current(state: &mut PlayerDataStatus, generation: u64, hash: usize, source: &ActivityInfoSource) -> bool {
+    if state.generation != generation { return false; }
+    let current = match state.last_update.as_mut() {
+        Some(data) if data.current_activity.activity_hash == hash => &mut data.current_activity,
+        _ => return false,
+    };
+    let before = current.clone();
+    enrich_activity(current, source);
+    *current != before
 }
 
 async fn update_history(
@@ -299,8 +340,6 @@ async fn update_history(
     let profile_info = api.profile_info_source.lock().await.get(profile).await?;
     let cached_modes = api
         .activity_info_source
-        .lock()
-        .await
         .cached_modes_snapshot();
 
     let mut past_activities: Vec<CompletedActivity> = Vec::new();
@@ -485,65 +524,123 @@ mod tests {
         }
     }
 
-    #[test]
-    fn valid_hash_recovers_after_missing_info_at_same_start_time() {
-        let last = CurrentActivity {
-            start_date: activity(20, "time").period,
-            activity_hash: 0,
-            activity_info: None,
-        };
-        let latest = LatestCharacterActivity {
-            date_activity_started: last.start_date,
-            current_activity_hash: 456,
-        };
-        assert!(should_refresh_current(&last, &latest));
+    fn observation(hash: usize, seconds: i64, modes: Vec<usize>) -> LatestCharacterActivity {
+        LatestCharacterActivity { current_activity_hash: hash,
+            date_activity_started: activity(seconds, "time").period, activity_modes: modes }
+    }
+
+    fn current() -> CurrentActivity {
+        CurrentActivity { start_date: activity(0, "time").period, activity_hash: 0,
+            activity_info: None, activity_modes: vec![] }
+    }
+
+    fn definition() -> ActivityInfo {
+        ActivityInfo { name: "Dungeon".into(), activity_modes: vec![DUNGEON_ACTIVITY_MODE], background_image: None }
     }
 
     #[test]
-    fn missing_definition_can_recover_without_a_new_activity_timestamp() {
-        let last = CurrentActivity {
-            start_date: activity(20, "time").period,
-            activity_hash: 456,
-            activity_info: None,
-        };
-        let latest = LatestCharacterActivity {
-            date_activity_started: last.start_date,
-            current_activity_hash: 456,
-        };
-        assert!(should_refresh_current(&last, &latest));
+    fn known_204_modes_publish_without_definition_and_repeated_runs_advance() {
+        let source = ActivityInfoSource::empty();
+        let mut last = current();
+        for start in [20, 40, 60] {
+            let latest = observation(456, start, vec![DUNGEON_ACTIVITY_MODE]);
+            assert!(update_current_snapshot(&mut last, latest.clone(), &source));
+            assert_eq!(last.start_date, latest.date_activity_started);
+            assert!(last.activity_info.is_none());
+            assert_eq!(last.activity_modes, vec![DUNGEON_ACTIVITY_MODE]);
+            assert!(!update_current_snapshot(&mut last, latest, &source));
+        }
+    }
+
+    #[tokio::test]
+    async fn definition_recovers_without_a_new_start_and_does_not_repeat_updates() {
+        let source = ActivityInfoSource::empty();
+        let mut last = current();
+        let latest = observation(456, 20, vec![]);
+        update_current_snapshot(&mut last, latest.clone(), &source);
+        source.get_with(456, || async { Ok(definition()) }).await.unwrap();
+        assert!(update_current_snapshot(&mut last, latest.clone(), &source));
+        assert_eq!(last.start_date, latest.date_activity_started);
+        assert_eq!(last.activity_modes, vec![DUNGEON_ACTIVITY_MODE]);
+        assert!(!update_current_snapshot(&mut last, latest, &source));
     }
 
     #[test]
-    fn unchanged_orbit_does_not_refresh() {
-        let last = CurrentActivity {
-            start_date: activity(20, "time").period,
-            activity_hash: 0,
-            activity_info: None,
-        };
-        let latest = LatestCharacterActivity {
-            date_activity_started: last.start_date,
-            current_activity_hash: 0,
-        };
-        assert!(!should_refresh_current(&last, &latest));
+    fn unchanged_orbit_does_not_refresh_and_unknown_modes_are_not_classified() {
+        let source = ActivityInfoSource::empty();
+        let mut last = current();
+        assert!(!update_current_snapshot(&mut last, observation(0, 0, vec![]), &source));
+        update_current_snapshot(&mut last, observation(123, 20, vec![7]), &source);
+        assert!(!has_tracked_mode(&last.activity_modes));
+        update_current_snapshot(&mut last, observation(0, 30, vec![82]), &source);
+        assert!(last.activity_modes.is_empty());
     }
 
-    #[test]
-    fn same_dungeon_reentry_updates_timer_but_unchanged_run_does_not() {
-        let last = CurrentActivity {
-            start_date: activity(20, "time").period,
-            activity_hash: 456,
-            activity_info: Some(ActivityInfo {
-                name: "Dungeon".to_string(),
-                activity_modes: vec![DUNGEON_ACTIVITY_MODE],
-                background_image: None,
-            }),
+    #[tokio::test]
+    async fn slow_manifest_does_not_gate_switch_restart_or_orbit() {
+        let source = ActivityInfoSource::empty();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+        let fetch = source.get_with(123, || async {
+            started_tx.send(()).unwrap();
+            finish_rx.await.unwrap();
+            Ok(definition())
+        });
+        let tracking = async {
+            started_rx.await.unwrap();
+            let mut last = current();
+            for (hash, start) in [(123, 20), (456, 30), (456, 40), (0, 50)] {
+                assert!(update_current_snapshot(&mut last, observation(hash, start, vec![82]), &source));
+                assert_eq!(last.activity_hash, hash);
+            }
+            assert!(last.activity_info.is_none());
+            assert!(source.cached_modes_snapshot().is_empty());
+            finish_tx.send(()).unwrap();
+            last
         };
-        let mut latest = LatestCharacterActivity {
-            date_activity_started: last.start_date,
-            current_activity_hash: 456,
-        };
-        assert!(!should_refresh_current(&last, &latest));
-        latest.date_activity_started = activity(30, "next").period;
-        assert!(should_refresh_current(&last, &latest));
+        let (result, last) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(fetch, tracking)
+        }).await.expect("status must progress before the manifest completes");
+        result.unwrap();
+        assert_eq!(last.activity_hash, 0);
+    }
+
+    #[tokio::test]
+    async fn enrichment_is_profile_scoped_and_never_replaces_run_identity() {
+        let source = ActivityInfoSource::empty();
+        source.get_with(123, || async { Ok(definition()) }).await.unwrap();
+        let mut state = PlayerDataStatus { generation: 2, error: None, last_update: Some(PlayerData {
+            current_activity: current(), activity_history: vec![],
+            profile_info: ProfileInfo { privacy: 1, display_name: "test".into(), display_tag: 1, character_ids: vec![] },
+        }) };
+        let latest = observation(123, 60, vec![82]);
+        let cur = &mut state.last_update.as_mut().unwrap().current_activity;
+        cur.activity_hash = latest.current_activity_hash;
+        cur.start_date = latest.date_activity_started;
+        assert!(!enrich_current(&mut state, 1, 123, &source), "old profile completion");
+        assert!(!enrich_current(&mut state, 2, 456, &source), "old activity completion");
+        assert!(enrich_current(&mut state, 2, 123, &source));
+        let cur = &state.last_update.as_ref().unwrap().current_activity;
+        assert_eq!(cur.start_date, latest.date_activity_started, "same-hash new run keeps its start");
+        assert_eq!(cur.activity_hash, 123);
+        assert!(!enrich_current(&mut state, 2, 123, &source));
+    }
+
+    #[tokio::test]
+    async fn stale_character_response_cannot_replace_current_modes() {
+        let source = ActivityInfoSource::empty();
+        source.get_with(123, || async { Ok(definition()) }).await.unwrap();
+        let mut timing = ActivityTiming::default();
+        let now = activity(100, "now").period;
+        let accepted = timing.resolve(observation(456, 40, vec![RAID_ACTIVITY_MODE]),
+            Some(activity(50, "mint").period), None, None, now).unwrap();
+        let stale = timing.resolve(observation(123, 20, vec![DUNGEON_ACTIVITY_MODE]),
+            Some(activity(30, "mint").period), None, None, now).unwrap();
+        assert_eq!(accepted, stale);
+        let mut last = current();
+        update_current_snapshot(&mut last, stale, &source);
+        assert_eq!(last.activity_hash, 456);
+        assert_eq!(last.activity_modes, vec![RAID_ACTIVITY_MODE]);
+        assert!(last.activity_info.is_none());
     }
 }

@@ -20,6 +20,7 @@ let currentActivity: CurrentActivity;
 let currentActivityHistory: PlayerDataStatus["lastUpdate"]["activityHistory"] = [];
 let lastRaidId;
 let lastActivityInstanceKey: string | null = null;
+let lastActivityName: string | null = null;
 let activityNameHideTimer: number | null = null;
 let doneInitialRefresh = false;
 
@@ -83,7 +84,7 @@ function createPopup(popup: Popup) {
 }
 
 function checkTimerInterval() {
-    if (!prefs || !prefs.displayTimer || !shown || !determineActivityType(currentActivity?.activityInfo?.activityModes)) {
+    if (!prefs || !prefs.displayTimer || !shown || !determineActivityType(currentActivity?.activityModes)) {
         clearTimeout(timerInterval);
         timerInterval = null;
         timerElem.classList.add("hidden");
@@ -153,20 +154,23 @@ function refresh(playerDataStatus: PlayerDataStatus) {
 function updateActivityDisplay(activityHistory: PlayerDataStatus["lastUpdate"]["activityHistory"]) {
     const activity = currentActivity;
     const activityInfo = activity?.activityInfo;
-    const type = determineActivityType(activityInfo?.activityModes);
+    const type = determineActivityType(activity?.activityModes);
 
-    if (!activity || !activityInfo || !type) {
+    if (!activity || !type) {
         clearTimeout(activityNameHideTimer ?? undefined);
         activityNameHideTimer = null;
         lastActivityInstanceKey = null;
+        lastActivityName = null;
         activityNameElem.classList.add("hidden");
         counterElem.classList.add("hidden");
         return;
     }
 
     const activityInstanceKey = `${activity.activityHash}:${activity.startDate}`;
-    if (activityInstanceKey !== lastActivityInstanceKey) {
+    const activityName = activityInfo?.name || null;
+    if (activityInstanceKey !== lastActivityInstanceKey || activityName !== lastActivityName) {
         lastActivityInstanceKey = activityInstanceKey;
+        lastActivityName = activityName;
         showActivityName();
     }
 
@@ -182,6 +186,7 @@ function showActivityName() {
     clearTimeout(activityNameHideTimer ?? undefined);
 
     if (!prefs.displayActivityName || !currentActivity?.activityInfo?.name) {
+        activityNameHideTimer = null;
         activityNameElem.classList.add("hidden");
         return;
     }

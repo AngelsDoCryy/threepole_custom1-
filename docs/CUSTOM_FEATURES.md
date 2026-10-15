@@ -6,7 +6,7 @@ Permanent preservation rule, confirmed 2026-10-13: retain activity names/auto-hi
 
 ## Activity name and independent settings — implemented
 
-The overlay displays the name of a recognized tracked activity (Raid, Dungeon, Strike or Lost Sector). It uses an instance key consisting of activity hash and selected start time, so a recognized new run of the same activity shows the name again.
+The overlay displays the name of a recognized tracked activity (Raid, Dungeon, Strike or Lost Sector). P1.1 (2026-10-15) permits timer/counter display from accepted 204/cached classification before the name is available. A late name becomes visible and starts its auto-hide period once; unchanged metadata does not repeatedly reshow it. It uses an instance key consisting of activity hash and selected start time, so a recognized new run of the same activity shows the name again.
 
 Name display and auto-hide have separate controls. The default delay is ten seconds; the UI offers 0–3600 seconds. This range is a UI constraint, not comprehensive backend validation: Rust stores a `u32` and does not enforce the 3600-second maximum. Input validation and recovery remain polish work.
 
@@ -32,7 +32,7 @@ Incomplete history modes are supplemented from the known classification cache; u
 
 Activity definitions provide modes and a fallback via raid/dungeon `activityTypeHash`. The persistent activity-mode cache remembers learned raid/dungeon classifications. It is separate from live timing and is not a complete local manifest database.
 
-History classification does not fetch a manifest definition for each record. An unseen hash with incomplete modes is omitted until its classification is learned elsewhere. The details UI can request metadata for retained historical activities. Manifest-error independence and recovery from cached empty names are **requirements not fully met**, documented in DESTINY_API.
+History classification does not fetch a manifest definition for each record. An unseen hash with incomplete modes is omitted until its classification is learned elsewhere. The details UI can request metadata for retained historical activities. P1.1 removes manifest waiting from status and adds bounded cache recovery, documented in DESTINY_API. Unknown classification still hides the overlay activity widgets until reliable modes exist; the details window distinguishes unavailable activity details from no activity.
 
 ## Icons — current requirement and actual assets
 

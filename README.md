@@ -60,7 +60,7 @@ The overlay counts completed history for the current activity hash; returning to
 
 ### Additional Raid / Dungeon detection
 
-Manifest activity types and a persistent learned-mode cache supplement missing Raid/Dungeon modes without a manifest request for every history record. Unknown historical hashes with incomplete modes can still be omitted. Details-window metadata requests remain possible; manifest publication/recovery defects are recorded in DESTINY_API.
+Manifest activity types and a persistent learned-mode cache supplement missing Raid/Dungeon modes without a manifest request for every history record. Unknown historical hashes with incomplete modes can still be omitted. P1.1 uses existing 204 modes/cached classification to update current activity independently of manifest/name loading, with bounded metadata recovery. Details-window metadata requests remain possible; behavior and remaining limits are recorded in DESTINY_API.
 
 ### Current activity timing (1.1.4)
 

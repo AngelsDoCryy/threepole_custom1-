@@ -4,6 +4,13 @@ Based on Threepole 1.1.2.
 
 Development update: 2026-10-14. Version metadata remains 1.1.4; distinguish the following MSI testbuild work by commit/workflow. Earlier sections describe shipped history; current requirements and unresolved gaps are in `docs/`.
 
+## P1.1: Manifest-independent activity state (development testbuild, 2026-10-15)
+- Publishes accepted activity identity/timing without awaiting manifest requests; uses existing 204 modes or cached classification while names load.
+- Coalesces metadata work inside the existing task, serializes manifest requests across callers, bounds cache/retry state and backs off incomplete/failed results.
+- Late metadata cannot replace a newer activity start or another profile; same-hash runs reuse metadata safely.
+- Preserves polling pauses, clear notifications, timer-stop semantics, tray/exit and process-free overlay targeting. Initial history blocking remains for P1.2.
+- Adds cache/state/parser/frontend regressions. MSI validation and Destiny live/performance acceptance are distinct; no measured speed/FPS advantage is claimed.
+
 ## Package 1: Process-free overlay recognition (development testbuild)
 - Removes foreground process/PID inspection and the unbounded process-name cache.
 - Uses the locally observed Destiny window title/class plus visibility/geometry at the unchanged 200 ms interval; hides on failed detection/placement and retries.

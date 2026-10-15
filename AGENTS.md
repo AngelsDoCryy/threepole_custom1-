@@ -37,7 +37,7 @@ Binding lifecycle clarification: preserve current window/tray behavior. Main X r
 ## Priorities and invariants
 
 - Improve startup, activity/orbit/repeated-run detection and clear-to-overlay latency beyond original where local code permits; measure rather than assume. Minimize requests and unnecessary work; prefer simple, focused changes.
-- Preserve independent 204 status (two-second pause), optional 1000 timing (ten-second pause) and history paths. Independent steady-state polling does **not** mean metadata or initialization is nonblocking; manifest/cache and initial-history defects remain open.
+- Preserve independent 204 status (two-second pause), optional 1000 timing (ten-second pause) and history paths. P1.1 removes manifest/network waits from accepted status publication using bounded, demand-driven enrichment in the same task; initial-history blocking remains open. Preserve metadata deduplication/backoff and profile-generation/hash guards; do not reintroduce network I/O under the cache lock.
 - Optional timing failure must not block identity/orbit or roll accepted timing back. Confirmed orbit clears stale optional timing.
 - History clears/notifications must not force orbit or stop a later run. Preserve per-hash daily counts and independently configurable timer, name, auto-hide, counter and notifications.
 - Raid/dungeon classification uses cached/manifest data without per-history-item classification requests. Do not restore removed activity-type icon requests.

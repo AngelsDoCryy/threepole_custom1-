@@ -52,7 +52,8 @@ export type PlayerData = {
 export type CurrentActivity = {
     startDate: string;
     activityHash: number;
-    activityInfo: ActivityInfo;
+    activityInfo: ActivityInfo | null;
+    activityModes: number[];
 };
 
 export type ActivityInfo = {

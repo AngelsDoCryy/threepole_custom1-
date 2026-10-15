@@ -52,7 +52,12 @@ impl ActivityTiming {
             let same_hash = self.character.as_ref().map_or(false, |accepted| {
                 latest.current_activity_hash == accepted.current_activity_hash
             });
-            let unchanged_character = self.character.as_ref() == Some(&latest);
+            // Classification enrichment is not a new identity and must not
+            // change the existing missing-mint timing fallback semantics.
+            let unchanged_character = self.character.as_ref().map_or(false, |accepted| {
+                accepted.current_activity_hash == latest.current_activity_hash
+                    && accepted.date_activity_started == latest.date_activity_started
+            });
             self.selected_start = Some(if same_hash && latest.current_activity_hash != 0 {
                 self.selected_start.unwrap_or(latest.date_activity_started)
                     .max(latest.date_activity_started)
@@ -101,6 +106,7 @@ impl ActivityTiming {
         Some(LatestCharacterActivity {
             date_activity_started: self.selected_start.unwrap_or(character.date_activity_started),
             current_activity_hash: character.current_activity_hash,
+            activity_modes: character.activity_modes.clone(),
         })
     }
 }
@@ -123,7 +129,7 @@ mod tests {
         primary: Option<i64>, secondary: Option<i64>, transitory: Option<i64>,
     ) -> LatestCharacterActivity {
         tracker.resolve(
-            LatestCharacterActivity { current_activity_hash: hash, date_activity_started: time(started) },
+            LatestCharacterActivity { current_activity_hash: hash, date_activity_started: time(started), activity_modes: vec![] },
             primary.map(time), secondary.map(time), transitory.map(time), time(600),
         ).unwrap()
     }
@@ -140,7 +146,7 @@ mod tests {
         let mut tracker = ActivityTiming::default();
         let epoch = DateTime::parse_from_rfc3339("1970-01-01T00:00:00Z").unwrap().with_timezone(&Utc);
         let offline = tracker.resolve(
-            LatestCharacterActivity { current_activity_hash: 0, date_activity_started: epoch },
+            LatestCharacterActivity { current_activity_hash: 0, date_activity_started: epoch, activity_modes: vec![] },
             Some(time(20)), Some(time(20)), None, time(30),
         ).unwrap();
         assert_eq!(offline.current_activity_hash, 0);
@@ -246,7 +252,7 @@ mod tests {
         sample(&mut tracker, 123, 70, Some(90), Some(90), Some(70));
         let epoch = DateTime::parse_from_rfc3339("1970-01-01T00:00:00Z").unwrap().with_timezone(&Utc);
         let orbit = tracker.resolve(
-            LatestCharacterActivity { current_activity_hash: 0, date_activity_started: epoch },
+            LatestCharacterActivity { current_activity_hash: 0, date_activity_started: epoch, activity_modes: vec![] },
             Some(time(100)), Some(time(95)), Some(time(70)), time(600),
         ).unwrap();
         assert_eq!(orbit.current_activity_hash, 0);
@@ -311,5 +317,17 @@ mod tests {
         sample(&mut first, 123, 10, Some(200), Some(200), Some(190));
         let mut second = ActivityTiming::default();
         assert_eq!(sample(&mut second, 456, 20, Some(30), Some(30), None).date_activity_started, time(20));
+    }
+
+    #[test]
+    fn mode_only_changes_do_not_erase_accepted_identity_freshness() {
+        let mut tracker = ActivityTiming::default();
+        sample(&mut tracker, 123, 10, Some(90), Some(90), Some(70));
+        let latest = LatestCharacterActivity {
+            current_activity_hash: 123, date_activity_started: time(10), activity_modes: vec![82],
+        };
+        let next = tracker.resolve(latest, None, Some(time(95)), Some(time(80)), time(600)).unwrap();
+        assert_eq!(next.date_activity_started, time(80));
+        assert_eq!(next.activity_modes, vec![82]);
     }
 }

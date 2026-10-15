@@ -24,11 +24,14 @@ use crate::consts::{CONFIG_DIR_NAME, DUNGEON_ACTIVITY_MODE, RAID_ACTIVITY_MODE};
 
 pub mod requests;
 pub mod responses;
+mod activity_metadata;
+pub use activity_metadata::ActivityInfoSource;
 
 #[derive(Debug)]
 pub enum ApiError {
     ResponseDeserializeError(serde_json::Error),
     ResponseError(BungieResponseError),
+    MetadataUnavailable,
 }
 
 impl Display for ApiError {
@@ -38,6 +41,7 @@ impl Display for ApiError {
                 write!(f, "Failed to parse response object: {}", e)
             }
             ApiError::ResponseError(e) => e.fmt(f),
+            ApiError::MetadataUnavailable => write!(f, "Activity metadata is temporarily unavailable"),
         }
     }
 }
@@ -102,7 +106,7 @@ impl Source<Profile, ProfileInfo> for ProfileInfoSource {
     }
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Clone)]
 struct ActivityModeCache {
     modes: HashMap<usize, Vec<usize>>,
 }
@@ -146,7 +150,7 @@ impl ActivityModeCache {
         }
     }
 
-    fn record_raid_or_dungeon(&mut self, activity_hash: usize, modes: &[usize]) {
+    fn record_raid_or_dungeon(&mut self, activity_hash: usize, modes: &[usize]) -> bool {
         let tracked_modes: Vec<usize> = modes
             .iter()
             .copied()
@@ -154,67 +158,18 @@ impl ActivityModeCache {
             .collect();
 
         if tracked_modes.is_empty() || self.modes.get(&activity_hash) == Some(&tracked_modes) {
-            return;
+            return false;
         }
 
         self.modes.insert(activity_hash, tracked_modes);
-        self.persist();
-    }
-}
-
-pub struct ActivityInfoSource {
-    cache: HashMap<usize, ActivityInfo>,
-    mode_cache: ActivityModeCache,
-}
-
-impl Default for ActivityInfoSource {
-    fn default() -> Self {
-        Self {
-            cache: HashMap::new(),
-            mode_cache: ActivityModeCache::load(),
-        }
-    }
-}
-
-impl ActivityInfoSource {
-    pub fn cached_modes_snapshot(&self) -> HashMap<usize, Vec<usize>> {
-        self.mode_cache.modes.clone()
-    }
-}
-
-#[async_trait]
-impl Source<usize, ActivityInfo> for ActivityInfoSource {
-    async fn get(&mut self, key: &usize) -> Result<ActivityInfo, ApiError> {
-        if let Some(value) = self.cache.get(key) {
-            return Ok(value.clone());
-        }
-
-        let value = Self::get_value(*key).await?;
-
-        self.mode_cache
-            .record_raid_or_dungeon(*key, &value.activity_modes);
-        self.cache.insert(*key, value.clone());
-
-        Ok(value)
-    }
-
-    async fn get_value(activity_hash: usize) -> Result<ActivityInfo, ApiError> {
-        let res_val = make_request(BungieRequest::GetDestinyActivityDefinition { activity_hash })
-            .await
-            .map_err(|e| ApiError::ResponseError(e))?;
-
-        serde_json::from_value(res_val).map_err(|e| ApiError::ResponseDeserializeError(e))
-    }
-
-    fn cache(&mut self) -> &mut HashMap<usize, ActivityInfo> {
-        &mut self.cache
+        true
     }
 }
 
 #[derive(Default)]
 pub struct Api {
     pub profile_info_source: Mutex<ProfileInfoSource>,
-    pub activity_info_source: Mutex<ActivityInfoSource>,
+    pub activity_info_source: ActivityInfoSource,
 }
 
 impl Api {

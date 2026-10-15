@@ -134,6 +134,7 @@ struct ProfileTransitoryActivity {
 pub struct LatestCharacterActivity {
     pub date_activity_started: DateTime<Utc>,
     pub current_activity_hash: usize,
+    pub activity_modes: Vec<usize>,
 }
 
 impl PartialOrd for LatestCharacterActivity {
@@ -178,6 +179,10 @@ impl<'de> Deserialize<'de> for ProfileCurrentActivities {
         struct _CurrentActivity {
             date_activity_started: DateTime<Utc>,
             current_activity_hash: usize,
+            #[serde(default, deserialize_with = "optional_component")]
+            current_activity_mode_types: Option<Vec<usize>>,
+            #[serde(default, deserialize_with = "optional_component")]
+            current_activity_mode_type: Option<usize>,
         }
 
         let profile = _Profile::deserialize(deserializer)?;
@@ -192,11 +197,16 @@ impl<'de> Deserialize<'de> for ProfileCurrentActivities {
             activities: profile.character_activities.data.map(|d| {
                 d.into_iter()
                     .map(|e| {
+                        let mut modes = e.1.current_activity_mode_types.unwrap_or_default();
+                        if let Some(mode) = e.1.current_activity_mode_type {
+                            if !modes.contains(&mode) { modes.push(mode); }
+                        }
                         (
                             e.0,
                             LatestCharacterActivity {
                                 date_activity_started: e.1.date_activity_started,
                                 current_activity_hash: e.1.current_activity_hash,
+                                activity_modes: modes,
                             },
                         )
                     })
@@ -297,7 +307,7 @@ impl<'de> Deserialize<'de> for CompletedActivity {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityInfo {
     pub name: String,
@@ -377,6 +387,24 @@ mod timing_tests {
         assert!(parsed.response_minted_timestamp < parsed.secondary_components_minted_timestamp);
         assert_eq!(parsed.transitory_start_time.unwrap().to_rfc3339(), "2026-09-17T00:01:10+00:00");
         assert_eq!(parsed.activities.unwrap()["character"].current_activity_hash, 123);
+    }
+
+    #[test]
+    fn parses_existing_204_modes_and_tolerates_absent_or_invalid_modes() {
+        for (list, single, expected) in [
+            (json!([7, 82]), json!(82), vec![7, 82]),
+            (json!(null), json!(4), vec![4]),
+            (json!("invalid"), json!(null), vec![]),
+            (json!([-1]), json!("invalid"), vec![]),
+        ] {
+            let mut value = profile();
+            value["characterActivities"]["data"]["character"]["currentActivityModeTypes"] = list;
+            value["characterActivities"]["data"]["character"]["currentActivityModeType"] = single;
+            let parsed: ProfileCurrentActivities = serde_json::from_value(value).unwrap();
+            assert_eq!(parsed.activities.unwrap()["character"].activity_modes, expected);
+        }
+        let parsed: ProfileCurrentActivities = serde_json::from_value(profile()).unwrap();
+        assert!(parsed.activities.unwrap()["character"].activity_modes.is_empty());
     }
 
     #[test]
