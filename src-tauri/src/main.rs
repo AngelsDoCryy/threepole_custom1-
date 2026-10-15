@@ -135,8 +135,6 @@ async fn get_activity_info(
 ) -> Result<ActivityInfo, String> {
     Ok(api
         .activity_info_source
-        .lock()
-        .await
         .get(&activity_hash)
         .await
         .map_err(|e| e.to_string())?)

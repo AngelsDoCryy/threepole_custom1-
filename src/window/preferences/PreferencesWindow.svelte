@@ -33,11 +33,11 @@
             {#if error}
                 <p class="error">{error}</p>
             {/if}
+
             <div class="preference">
-                <StyledCheckbox bind:checked={preferences.enableOverlay}
-                    >Enable overlay</StyledCheckbox
-                >
+                <StyledCheckbox bind:checked={preferences.enableOverlay}>Enable overlay</StyledCheckbox>
             </div>
+
             <div class="preference-group">
                 <div class="preference">
                     <StyledCheckbox
@@ -56,14 +56,21 @@
                 <div class="preference">
                     <StyledCheckbox
                         bind:checked={preferences.displayMilliseconds}
-                        disabled={!preferences.enableOverlay}
+                        disabled={!preferences.enableOverlay || !preferences.displayTimer}
                         >Display timer milliseconds</StyledCheckbox
                     >
                 </div>
             </div>
 
-            <h2>Activity display</h2>
-            <div class="preference-group">
+            <h2>Custom features</h2>
+            <div class="preference-group custom-group">
+                <div class="preference">
+                    <StyledCheckbox
+                        bind:checked={preferences.displayTimer}
+                        disabled={!preferences.enableOverlay}
+                        >Display timer</StyledCheckbox
+                    >
+                </div>
                 <div class="preference">
                     <StyledCheckbox
                         bind:checked={preferences.displayActivityName}
@@ -91,14 +98,8 @@
                     />
                     <span>seconds</span>
                 </div>
-                <div class="preference">
-                    <StyledCheckbox
-                        bind:checked={preferences.displayActivityIcon}
-                        disabled={!preferences.enableOverlay}
-                        >Display raid/dungeon icon</StyledCheckbox
-                    >
-                </div>
             </div>
+
             <div class="actions">
                 <LineButton clickCallback={confirm}>Confirm</LineButton>
             </div>
@@ -122,6 +123,10 @@
     .preference-group {
         padding: 8px 12px;
         border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .custom-group {
+        margin-top: 0;
     }
 
     .preference {

@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-pub const TARGET_NAME: &str = "destiny2.exe";
+// Observed through window-only inspection on 2026-10-14; not executable authentication.
+pub const TARGET_WINDOW_TITLE: &str = "Destiny 2";
+pub const TARGET_WINDOW_CLASS: &str = "Tiger D3D Window";
 pub const OVERLAY_POLL_INTERVAL: Duration = Duration::from_millis(200);
 pub const APP_NAME: &str = "Threepole Custom";
 pub const CONFIG_DIR_NAME: &str = "threepole-custom";

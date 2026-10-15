@@ -2,29 +2,36 @@ use std::error::Error;
 use std::{
     collections::HashMap,
     fmt::{Display, Formatter},
+    fs::{create_dir_all, read_to_string},
     hash::Hash,
+    path::PathBuf,
 };
 
 use async_trait::async_trait;
+use directories::BaseDirs;
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use self::{
     requests::{make_request, BungieRequest, BungieResponseError},
     responses::{
         ActivityInfo, BungieProfile, CharacterActivityHistory, ProfileCurrentActivities,
-        ProfileInfo,
+        ProfileInfo, ProfileTransitoryTiming,
     },
 };
 use crate::config::profiles::Profile;
-use crate::consts::{DUNGEON_ACTIVITY_HASH, RAID_ACTIVITY_HASH};
+use crate::consts::{CONFIG_DIR_NAME, DUNGEON_ACTIVITY_MODE, RAID_ACTIVITY_MODE};
 
 pub mod requests;
 pub mod responses;
+mod activity_metadata;
+pub use activity_metadata::ActivityInfoSource;
 
 #[derive(Debug)]
 pub enum ApiError {
     ResponseDeserializeError(serde_json::Error),
     ResponseError(BungieResponseError),
+    MetadataUnavailable,
 }
 
 impl Display for ApiError {
@@ -34,6 +41,7 @@ impl Display for ApiError {
                 write!(f, "Failed to parse response object: {}", e)
             }
             ApiError::ResponseError(e) => e.fmt(f),
+            ApiError::MetadataUnavailable => write!(f, "Activity metadata is temporarily unavailable"),
         }
     }
 }
@@ -85,7 +93,7 @@ impl Source<Profile, ProfileInfo> for ProfileInfoSource {
         let res_val = make_request(BungieRequest::GetProfile {
             membership_type: profile.account_platform,
             membership_id: &profile.account_id,
-            component: 100,
+            components: &[100],
         })
         .await
         .map_err(|e| ApiError::ResponseError(e))?;
@@ -98,63 +106,70 @@ impl Source<Profile, ProfileInfo> for ProfileInfoSource {
     }
 }
 
-#[derive(Default)]
-pub struct ActivityInfoSource {
-    cache: HashMap<usize, ActivityInfo>,
+#[derive(Serialize, Deserialize, Default, Clone)]
+struct ActivityModeCache {
+    modes: HashMap<usize, Vec<usize>>,
 }
 
-#[async_trait]
-impl Source<usize, ActivityInfo> for ActivityInfoSource {
-    async fn get_value(activity_hash: usize) -> Result<ActivityInfo, ApiError> {
-        let res_val = make_request(BungieRequest::GetDestinyActivityDefinition { activity_hash })
-            .await
-            .map_err(|e| ApiError::ResponseError(e))?;
+impl ActivityModeCache {
+    fn path() -> Option<PathBuf> {
+        BaseDirs::new().map(|d| {
+            let mut path = d.data_dir().to_owned();
+            path.push(CONFIG_DIR_NAME);
+            path.push("activity-mode-cache.json");
+            path
+        })
+    }
 
-        let mut info: ActivityInfo =
-            serde_json::from_value(res_val).map_err(|e| ApiError::ResponseDeserializeError(e))?;
+    fn load() -> Self {
+        let path = match Self::path() {
+            Some(path) => path,
+            None => return Self::default(),
+        };
 
-        // For raids/dungeons use the generic Activity Type icon. This is more
-        // reliable than the individual Activity icon (some activities, such as
-        // Sundered Doctrine, intentionally have no per-activity icon).
-        if info.activity_type_hash == RAID_ACTIVITY_HASH
-            || info.activity_type_hash == DUNGEON_ACTIVITY_HASH
-        {
-            let type_val = make_request(BungieRequest::GetDestinyActivityTypeDefinition {
-                activity_type_hash: info.activity_type_hash,
-            })
-            .await;
+        read_to_string(path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
 
-            if let Ok(type_val) = type_val {
-                #[derive(serde::Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct ActivityTypeInfo {
-                    display_properties: ActivityTypeDisplayProperties,
-                }
+    fn persist(&self) {
+        let path = match Self::path() {
+            Some(path) => path,
+            None => return,
+        };
 
-                #[derive(serde::Deserialize)]
-                #[serde(rename_all = "camelCase")]
-                struct ActivityTypeDisplayProperties {
-                    icon: Option<String>,
-                }
-
-                if let Ok(type_info) = serde_json::from_value::<ActivityTypeInfo>(type_val) {
-                    info.type_icon = type_info.display_properties.icon;
-                }
+        if let Some(parent) = path.parent() {
+            if create_dir_all(parent).is_err() {
+                return;
             }
         }
 
-        Ok(info)
+        if let Ok(serialized) = serde_json::to_string(self) {
+            let _ = std::fs::write(path, serialized);
+        }
     }
 
-    fn cache(&mut self) -> &mut HashMap<usize, ActivityInfo> {
-        &mut self.cache
+    fn record_raid_or_dungeon(&mut self, activity_hash: usize, modes: &[usize]) -> bool {
+        let tracked_modes: Vec<usize> = modes
+            .iter()
+            .copied()
+            .filter(|m| *m == RAID_ACTIVITY_MODE || *m == DUNGEON_ACTIVITY_MODE)
+            .collect();
+
+        if tracked_modes.is_empty() || self.modes.get(&activity_hash) == Some(&tracked_modes) {
+            return false;
+        }
+
+        self.modes.insert(activity_hash, tracked_modes);
+        true
     }
 }
 
 #[derive(Default)]
 pub struct Api {
     pub profile_info_source: Mutex<ProfileInfoSource>,
-    pub activity_info_source: Mutex<ActivityInfoSource>,
+    pub activity_info_source: ActivityInfoSource,
 }
 
 impl Api {
@@ -178,7 +193,23 @@ impl Api {
         let res_val = make_request(BungieRequest::GetProfile {
             membership_type: profile.account_platform,
             membership_id: &profile.account_id,
-            component: 204,
+            // Keep the original status request independent of optional timing.
+            // Orbit/activity identity must not wait for component 1000.
+            components: &[204],
+        })
+        .await
+        .map_err(|e| ApiError::ResponseError(e))?;
+
+        serde_json::from_value(res_val).map_err(|e| ApiError::ResponseDeserializeError(e))
+    }
+
+    pub async fn get_profile_transitory(
+        profile: &Profile,
+    ) -> Result<ProfileTransitoryTiming, ApiError> {
+        let res_val = make_request(BungieRequest::GetProfile {
+            membership_type: profile.account_platform,
+            membership_id: &profile.account_id,
+            components: &[1000],
         })
         .await
         .map_err(|e| ApiError::ResponseError(e))?;

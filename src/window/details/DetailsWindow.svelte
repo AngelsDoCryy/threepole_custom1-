@@ -33,7 +33,7 @@
     function timerTick() {
         if (
             !determineActivityType(
-                playerData?.currentActivity?.activityInfo?.activityModes
+                playerData?.currentActivity?.activityModes
             )
         ) {
             return;
@@ -54,7 +54,9 @@
 
         let activityInfo = await ipc.getActivityInfo(hash);
 
-        activityInfoMap[hash] = activityInfo;
+        if (activityInfo.name.trim() && activityInfo.activityModes.length) {
+            activityInfoMap[hash] = activityInfo;
+        }
 
         return activityInfo;
     }
@@ -64,7 +66,7 @@
         error = status?.error;
 
         let currentActivity = playerData?.currentActivity;
-        if (currentActivity?.activityInfo) {
+        if (currentActivity?.activityInfo?.name.trim() && currentActivity.activityInfo.activityModes.length) {
             activityInfoMap[currentActivity.activityHash] =
                 currentActivity.activityInfo;
         }
@@ -115,12 +117,12 @@
         <div class="header margin">
             <div class="status">
                 {#if playerData}
-                    {#if determineActivityType(playerData.currentActivity?.activityInfo?.activityModes)}
+                    {#if determineActivityType(playerData.currentActivity?.activityModes)}
                         <h1>
                             {timeText}<span class="small grey">{msText}</span>
                         </h1>
                         <h2 class="grey">
-                            {playerData.currentActivity.activityInfo.name.toUpperCase()}
+                            {playerData.currentActivity.activityInfo?.name?.toUpperCase() || "ACTIVITY NAME UNAVAILABLE"}
                         </h2>
                     {:else}
                         <h1 class="small">
@@ -129,7 +131,7 @@
                                 >#{playerData.profileInfo.displayTag}</span
                             >
                         </h1>
-                        <h2 class="grey">NOT IN ACTIVITY</h2>
+                        <h2 class="grey">{playerData.currentActivity?.activityHash ? "ACTIVITY DETAILS UNAVAILABLE" : "NOT IN ACTIVITY"}</h2>
                     {/if}
                 {:else}
                     <h1 class="small">Error</h1>
